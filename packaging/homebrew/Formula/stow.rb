@@ -13,11 +13,9 @@
 class Stow < Formula
   desc "Offload unused files on macOS; rehydrate transparently on access"
   homepage "https://stow.viraat.dev"
+  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.1.0.tar.gz"
+  sha256 "b5bcea354803224970668ed34c4d028680adf393a8a3684069714a4714f3bd54"
   license "MIT"
-  # Stable release tarball (hosted on stow.viraat.dev or GitHub releases).
-  # Filled in at first release; until then install with `--HEAD`.
-  # url "https://stow.viraat.dev/releases/stow-0.1.0.tar.gz"
-  # sha256 "..."
   head "https://github.com/viraatdas/stow.git", branch: "main"
 
   depends_on "cbindgen" => :build
