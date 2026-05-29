@@ -1,0 +1,7 @@
+// Clang module for the Rust core's C ABI. Bundled into StowCore.xcframework's
+// Headers dir alongside the cbindgen-generated stow_core.h, so Swift targets can
+// `import CStowCore`. The idiomatic Swift wrapper (module StowCore) sits on top.
+module CStowCore {
+    header "stow_core.h"
+    export *
+}

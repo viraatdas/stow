@@ -1,0 +1,22 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Generated FFI artifacts
+/artifacts/
+/packages/StowCore/include/stow_core.h
+
+# Xcode
+# Stow.xcodeproj is generated from project.yml by `xcodegen generate`.
+/Stow.xcodeproj/
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+
+# macOS
+.DS_Store
+
+# Secrets / local config
+.env
+*.local.json

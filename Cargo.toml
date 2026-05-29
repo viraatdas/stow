@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["rust/stow_core"]
+
+[profile.release]
+# Optimize the FFI core that ships inside the app/extension.
+# NOTE: panic stays "unwind" (the default) so the catch_unwind guards at every
+# extern "C" entry point can turn a Rust panic into an error code instead of
+# aborting fileproviderd. Never let a panic cross the FFI boundary.
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,21 @@
+[package]
+name = "stow_core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "stow_core"
+# staticlib  -> the .a we link into the app + extension
+# rlib       -> lets `cargo test` build the internal logic tests
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+thiserror = "2"
+
+# Heavy runtime deps (added in M1/M3, kept out of M0 to keep scaffolding builds
+# fast and isolate failures): aws-sdk-s3, tokio, rusqlite, blake3, aes-gcm,
+# tokio-util.

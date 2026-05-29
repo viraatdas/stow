@@ -1,0 +1,133 @@
+name: Stow
+options:
+  bundleIdPrefix: ai.exla
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"            # language mode 5 — avoid strict-concurrency churn in M0
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""           # ad-hoc/local for v1; set a team for notarized distribution
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+    # Apple Silicon only — the Rust xcframework is arm64-only. Pin ARCHS so Release
+    # (which otherwise builds the standard arch set) doesn't attempt an x86_64 slice.
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: "NO"
+    # The Rust build runs in a Run Script phase. Xcode's script sandbox uses
+    # sandbox-exec, which can't nest inside Homebrew's build sandbox — so disable
+    # it (the script legitimately writes to target/ and artifacts/ anyway).
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  # ---- Faceless background agent (hosts the extension) -------------------
+  StowAgent:
+    type: application
+    platform: macOS
+    sources:
+      - path: apps/StowAgent/Sources
+      - path: packages/StowCore/Sources/StowCore   # shared FFI wrapper, compiled in
+    info:
+      path: apps/StowAgent/Info.plist
+      properties:
+        CFBundleName: Stow
+        CFBundleDisplayName: Stow
+        LSUIElement: true          # faceless: no Dock icon, no menu bar
+        LSMinimumSystemVersion: "14.0"
+    entitlements:
+      path: apps/StowAgent/StowAgent.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.ai.exla.stow
+        com.apple.security.network.client: true
+        com.apple.security.files.user-selected.read-write: true
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)ai.exla.stow
+        com.apple.developer.fileprovider.testing-mode: true   # dev-only; strip from release
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.exla.stow
+    dependencies:
+      - target: StowFileProvider   # embed the extension in the agent bundle
+        embed: true
+      - framework: artifacts/StowCore.xcframework
+        embed: false               # static library — nothing to embed
+    preBuildScripts:
+      - script: "\"$PROJECT_DIR/scripts/build-rust-xcframework.sh\""
+        name: Build Rust core (xcframework)
+        basedOnDependencyAnalysis: false
+
+  # ---- File Provider extension -------------------------------------------
+  StowFileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: apps/StowFileProvider/Sources
+      - path: packages/StowCore/Sources/StowCore   # shared FFI wrapper, compiled in
+    info:
+      path: apps/StowFileProvider/Info.plist
+      properties:
+        CFBundleDisplayName: Stow File Provider
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+        NSExtensionFileProviderDocumentGroup: group.ai.exla.stow
+    entitlements:
+      path: apps/StowFileProvider/StowFileProvider.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.ai.exla.stow
+        com.apple.security.network.client: true
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)ai.exla.stow
+        com.apple.developer.fileprovider.testing-mode: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.exla.stow.fileprovider
+    dependencies:
+      - framework: artifacts/StowCore.xcframework
+        embed: false
+    preBuildScripts:
+      - script: "\"$PROJECT_DIR/scripts/build-rust-xcframework.sh\""
+        name: Build Rust core (xcframework)
+        basedOnDependencyAnalysis: false
+
+  # ---- stow CLI (command-line tool) --------------------------------------
+  stow:
+    type: tool
+    platform: macOS
+    sources:
+      - path: cli/stow/Sources
+      - path: packages/StowCore/Sources/StowCore   # shared FFI wrapper, compiled in
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.exla.stow.cli
+        PRODUCT_NAME: stow
+    dependencies:
+      - framework: artifacts/StowCore.xcframework
+        embed: false
+    preBuildScripts:
+      - script: "\"$PROJECT_DIR/scripts/build-rust-xcframework.sh\""
+        name: Build Rust core (xcframework)
+        basedOnDependencyAnalysis: false
+
+schemes:
+  StowAgent:
+    build:
+      targets:
+        StowAgent: all
+    run:
+      config: Debug
+  stow:
+    build:
+      targets:
+        stow: all
+    run:
+      config: Debug
