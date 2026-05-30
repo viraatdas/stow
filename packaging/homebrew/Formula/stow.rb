@@ -14,7 +14,7 @@ class Stow < Formula
   desc "Offload unused files on macOS to your own S3, restore on demand"
   homepage "https://stow.viraat.dev"
   url "https://github.com/viraatdas/stow/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "e7c4a91b3f8d6c25e0a4f1b9d8c3e2a7f6b5d4c3e2a1f0b9d8c7e6f5a4b3c2d1e"
+  sha256 "ee8697de8d482554219fdd80ddd6fcaa153e53066633955e0a48c0d8235ffef7"
   license "MIT"
   head "https://github.com/viraatdas/stow.git", branch: "main"
 
