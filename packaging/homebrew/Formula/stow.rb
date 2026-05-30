@@ -1,20 +1,20 @@
-# Homebrew formula for Stow — build-from-source (v1, personal/local use).
+# Homebrew formula for Stow — build-from-source.
 #
-# Why a formula (not a cask): a cask installs a *prebuilt, notarized* artifact.
-# v1 is ad-hoc signed and built locally, which avoids the quarantine that would
-# otherwise stop the File Provider extension from loading. So we compile on the
-# user's machine. UX: `brew tap viraatdas/tap && brew install stow`.
+# v0.2.0 ships the working CLI offload engine: `stow init` auto-provisions an S3
+# bucket in your own AWS account, `stow offload <file>` uploads + frees disk,
+# `stow restore <file>` brings it back byte-identical, `stow status` lists state.
 #
-# Build-from-source works because Homebrew's build here allows network, so cargo
-# (crates.io) and SwiftPM (swift-argument-parser) resolve normally.
+# Build-from-source works because Homebrew's build allows network, so cargo
+# (crates.io) resolves normally. The CLI is dependency-free Swift + a static Rust
+# core, so no provisioning profile is needed.
 #
-# When we later add Developer ID + notarization for distribution to other Macs,
-# this becomes a Cask pointing at a release on stow.viraat.dev.
+# The transparent Finder-folder (File Provider) layer is a separate, in-progress
+# component and is intentionally NOT built/installed here yet.
 class Stow < Formula
-  desc "Offload unused files on macOS; rehydrate transparently on access"
+  desc "Offload unused files on macOS to your own S3, restore on demand"
   homepage "https://stow.viraat.dev"
-  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "b5bcea354803224970668ed34c4d028680adf393a8a3684069714a4714f3bd54"
+  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "e7c4a91b3f8d6c25e0a4f1b9d8c3e2a7f6b5d4c3e2a1f0b9d8c7e6f5a4b3c2d1e"
   license "MIT"
   head "https://github.com/viraatdas/stow.git", branch: "main"
 
@@ -28,41 +28,25 @@ class Stow < Formula
     system "xcodegen", "generate"
     system "./scripts/build-rust-xcframework.sh"
 
-    # Build with signing disabled: Apple Silicon still applies an ad-hoc signature
-    # so the binaries run. The agent/extension carry restricted entitlements
-    # (app-groups, fileprovider) that need a provisioning profile to sign properly
-    # — that's wired up with a (free) personal team when the domain is registered.
-    #
-    # Use `system "xcodebuild"`, NOT Homebrew's `xcodebuild` helper: the helper
-    # rewrites the build env and re-triggers the signing/provisioning requirement.
-    unsigned = ["CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO",
-                "CODE_SIGN_IDENTITY=", "CODE_SIGN_STYLE=Manual"]
-    %w[StowAgent stow].each do |scheme|
-      system "xcodebuild", "-project", "Stow.xcodeproj", "-scheme", scheme,
-             "-configuration", "Release", "-destination", "platform=macOS,arch=arm64",
-             "-derivedDataPath", "build", "build", *unsigned
-    end
+    # Build just the CLI. Use `system "xcodebuild"`, NOT Homebrew's xcodebuild
+    # helper (the helper rewrites the env and re-triggers signing requirements).
+    system "xcodebuild", "-project", "Stow.xcodeproj", "-scheme", "stow",
+           "-configuration", "Release", "-destination", "platform=macOS,arch=arm64",
+           "-derivedDataPath", "build", "build",
+           "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO",
+           "CODE_SIGN_IDENTITY=", "CODE_SIGN_STYLE=Manual"
 
-    products = "build/Build/Products/Release"
-    # The faceless agent (with the embedded File Provider extension) lives in libexec.
-    libexec.install "#{products}/StowAgent.app"
-    bin.install "#{products}/stow"
-  end
-
-  # Run the agent in the background; it hosts the extension and the CLI's IPC server.
-  service do
-    run [opt_libexec/"StowAgent.app/Contents/MacOS/StowAgent"]
-    keep_alive true
-    log_path var/"log/stow-agent.log"
-    error_log_path var/"log/stow-agent.log"
+    bin.install "build/Build/Products/Release/stow"
   end
 
   def caveats
     <<~EOS
-      Stow is build-from-source and ad-hoc signed (personal use).
-      Start the background agent, then set up:
-        brew services start stow
-        stow init
+      Stow stores offloaded files in an S3 bucket in YOUR AWS account, using your
+      existing AWS credentials (~/.aws or environment). Get started:
+        stow init             # auto-provision the bucket
+        stow offload <file>   # upload + free disk space
+        stow restore <file>   # bring it back
+        stow status           # what's offloaded
     EOS
   end
 
