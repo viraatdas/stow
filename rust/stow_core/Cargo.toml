@@ -6,7 +6,7 @@ publish = false
 
 [lib]
 name = "stow_core"
-# staticlib  -> the .a we link into the app + extension
+# staticlib  -> the .a we link into the app + extension + CLI
 # rlib       -> lets `cargo test` build the internal logic tests
 crate-type = ["staticlib", "rlib"]
 
@@ -15,7 +15,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
 thiserror = "2"
+dirs = "5"
+blake3 = "1"
 
-# Heavy runtime deps (added in M1/M3, kept out of M0 to keep scaffolding builds
-# fast and isolate failures): aws-sdk-s3, tokio, rusqlite, blake3, aes-gcm,
-# tokio-util.
+# Async runtime + AWS S3 + local index
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
+aws-sdk-sts = "1"
+aws-credential-types = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }

@@ -12,7 +12,7 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: ""           # ad-hoc/local for v1; set a team for notarized distribution
+    DEVELOPMENT_TEAM: "3C4383262W" # Viraat Das (paid program); enables signed local runs
     ENABLE_HARDENED_RUNTIME: YES
     DEAD_CODE_STRIPPING: YES
     # Apple Silicon only — the Rust xcframework is arm64-only. Pin ARCHS so Release
@@ -42,14 +42,13 @@ targets:
     entitlements:
       path: apps/StowAgent/StowAgent.entitlements
       properties:
+        # Canonical File Provider host config: sandboxed + SAME app group as the
+        # extension's document group, so the system links app<->extension.
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
           - group.ai.exla.stow
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-write: true
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)ai.exla.stow
-        com.apple.developer.fileprovider.testing-mode: true   # dev-only; strip from release
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.exla.stow
@@ -77,6 +76,8 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+        # REQUIRED for a valid File Provider extension — its absence causes
+        # NSFileProviderManager.add to fail with -2014 ApplicationExtensionNotFound.
         NSExtensionFileProviderDocumentGroup: group.ai.exla.stow
     entitlements:
       path: apps/StowFileProvider/StowFileProvider.entitlements
@@ -85,9 +86,6 @@ targets:
         com.apple.security.application-groups:
           - group.ai.exla.stow
         com.apple.security.network.client: true
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)ai.exla.stow
-        com.apple.developer.fileprovider.testing-mode: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.exla.stow.fileprovider

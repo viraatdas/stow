@@ -65,6 +65,8 @@ pub enum StowError {
     Cancelled,
     #[error("integrity check failed: {0}")]
     Integrity(String),
+    #[error("{0}")]
+    Unknown(String),
 }
 
 impl StowError {
@@ -78,6 +80,7 @@ impl StowError {
             StowError::Network(_) => StowStatus::Network,
             StowError::Cancelled => StowStatus::Cancelled,
             StowError::Integrity(_) => StowStatus::Integrity,
+            StowError::Unknown(_) => StowStatus::Unknown,
         }
     }
 }

@@ -1,14 +1,10 @@
 import Foundation
 import CStowCore
 
-/// Idiomatic Swift wrapper over the Rust core's C ABI (`libstow_core`, exposed as
-/// the `CStowCore` clang module from StowCore.xcframework).
-///
-/// In M0 this proves the static library links and is callable from both the app
-/// and the File Provider extension. The data-plane methods (fetch/upload) get
-/// real bodies in M1.
+/// Swift wrapper over the Rust core's C ABI (`CStowCore` from StowCore.xcframework).
+/// The engine functions return JSON strings which we decode here.
 public enum StowCoreLib {
-    /// Version string baked into the Rust core. The trivial cross-FFI smoke test.
+    /// Version string baked into the Rust core.
     public static func version() -> String {
         guard let cstr = stow_core_version() else { return "unknown" }
         defer { stow_string_free(cstr) }
@@ -16,50 +12,52 @@ public enum StowCoreLib {
     }
 }
 
-/// Status codes mirrored from the Rust `StowStatus` enum, for ergonomic Swift use.
-public enum StowStatusCode: Int32 {
-    case ok = 0
-    case unknown = 1
-    case panic = 2
-    case invalidArg = 3
-    case invalidConfig = 4
-    case unimplemented = 5
-    case notFound = 6
-    case io = 7
-    case network = 8
-    case cancelled = 9
-    case integrity = 10
-}
-
-/// An error surfaced from the Rust core (nonzero status + message via `err_out`).
-public struct StowCoreError: Error, CustomStringConvertible {
-    public let status: StowStatusCode
+/// An error surfaced from the Rust engine (`{"error":...,"code":N}` JSON).
+public struct StowError: Error, CustomStringConvertible {
     public let message: String
-    public var description: String { "StowCoreError(\(status)): \(message)" }
+    public let code: Int
+    public var description: String { message }
 }
 
-/// A live handle to the Rust core. Owns the underlying `StowCore*` and frees it
-/// on deinit. Constructed from a JSON config string (bucket/region/prefix/…).
-public final class StowCore {
-    private let handle: OpaquePointer
-
-    /// Create a core from a JSON config. Throws `StowCoreError` on bad config.
-    public init(configJSON: String) throws {
-        var errPtr: UnsafeMutablePointer<CChar>? = nil
-        guard let h = stow_core_new(configJSON, &errPtr) else {
-            let msg = errPtr.map { p -> String in
-                defer { stow_string_free(p) }
-                return String(cString: p)
-            } ?? "unknown error"
-            throw StowCoreError(status: .invalidConfig, message: msg)
+/// Calls into the Rust engine and returns decoded JSON, throwing `StowError`
+/// when the engine reports a failure.
+public enum StowEngine {
+    /// Take ownership of a C string the core allocated, convert + free it.
+    private static func take(_ ptr: UnsafeMutablePointer<CChar>?) throws -> [String: Any] {
+        guard let ptr else { throw StowError(message: "core returned null", code: -1) }
+        defer { stow_string_free(ptr) }
+        let json = String(cString: ptr)
+        guard let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw StowError(message: "invalid response from core: \(json)", code: -1)
         }
-        self.handle = h
+        if let err = obj["error"] as? String {
+            throw StowError(message: err, code: (obj["code"] as? Int) ?? 1)
+        }
+        return obj
     }
 
-    deinit {
-        stow_core_free(handle)
+    /// `stow init` — auto-provision S3 + persist config.
+    public static func initialize(region: String?) throws -> [String: Any] {
+        if let region {
+            return try region.withCString { try take(stow_engine_init($0)) }
+        } else {
+            return try take(stow_engine_init(nil))
+        }
     }
 
-    /// Underlying handle, for the data-plane calls wired up in M1.
-    var raw: OpaquePointer { handle }
+    /// `stow add/offload <path>`.
+    public static func offload(_ path: String) throws -> [String: Any] {
+        try path.withCString { try take(stow_engine_offload($0)) }
+    }
+
+    /// `stow restore <path>`.
+    public static func restore(_ path: String) throws -> [String: Any] {
+        try path.withCString { try take(stow_engine_restore($0)) }
+    }
+
+    /// `stow status`.
+    public static func status() throws -> [String: Any] {
+        try take(stow_engine_status())
+    }
 }

@@ -11,8 +11,11 @@
 //! this crate to generate `stow_core.h`.
 
 mod config;
+mod engine;
 mod error;
 mod ffi;
+mod index;
+mod s3;
 
 // Re-export the FFI surface so cbindgen and linkers see it from the crate root.
 pub use error::StowStatus;

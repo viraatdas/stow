@@ -28,7 +28,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, NSFileProviderError(.noSuchItem))
+        // The root container makes the domain a valid, browsable (empty) folder.
+        // M1: look up other identifiers in the SQLite index.
+        if identifier == .rootContainer {
+            completionHandler(StowItem.root, nil)
+        } else {
+            completionHandler(nil, NSFileProviderError(.noSuchItem))
+        }
         return Progress()
     }
 
