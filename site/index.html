@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>stow — offload your files on mac</title>
-<meta name="description" content="Offload unused files on macOS to your own S3, restore on demand. A fast Rust-powered CLI." />
+<meta name="description" content="A manual macOS CLI to offload files to your own S3 and restore them on demand. No background daemon — you run the commands. Fast, Rust-powered." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&display=swap" rel="stylesheet" />
@@ -41,7 +41,15 @@
     font-weight: 300;
     font-size: 1.15rem;
     color: var(--muted);
+    margin: 0 0 1.2rem;
+  }
+  .lead {
+    font-weight: 300;
+    font-size: 1rem;
     margin: 0 0 3rem;
+  }
+  .lead code {
+    font-size: 0.85rem;
   }
   h2 {
     font-weight: 400;
@@ -90,7 +98,9 @@
 <body>
   <main class="wrap">
     <h1>stow</h1>
-    <p class="tag">Offload unused files on your Mac to your own S3, and restore them on demand.</p>
+    <p class="tag">A manual CLI to offload files from your Mac to your own S3, and restore them on demand.</p>
+
+    <p class="lead">You stay in control. Stow only moves a file when you run a command &mdash; <code>stow offload</code> uploads it to S3 and frees the disk space; <code>stow restore</code> brings it back, byte-for-byte. There&rsquo;s no background daemon and nothing happens automatically.</p>
 
     <h2>Install</h2>
     <pre><code class="cmd">brew tap viraatdas/tap
@@ -117,7 +127,7 @@ stow restore ~/Movies/big-render.mov</code></pre>
 
     <footer>
       <a href="https://github.com/viraatdas/stow">github.com/viraatdas/stow</a>
-      &nbsp;·&nbsp; built by <a href="https://viraat.dev">viraat</a>
+      &nbsp;·&nbsp; built by <a href="https://viraat.dev">Viraat</a> and AI
     </footer>
   </main>
 </body>
