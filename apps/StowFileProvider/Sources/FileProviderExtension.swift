@@ -46,7 +46,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     ) -> Progress {
         // M1: look up the S3 key in the index, download via stow_fetch_object,
         // return the materialized temp URL here.
-        completionHandler(nil, nil, StowError.notImplemented)
+        completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
         return Progress()
     }
 
@@ -58,7 +58,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, StowError.notImplemented)
+        completionHandler(nil, [], false, NSFileProviderError(.noSuchItem))
         return Progress()
     }
 
@@ -71,7 +71,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, StowError.notImplemented)
+        completionHandler(nil, [], false, NSFileProviderError(.noSuchItem))
         return Progress()
     }
 
@@ -82,7 +82,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
-        completionHandler(StowError.notImplemented)
+        completionHandler(NSFileProviderError(.noSuchItem))
         return Progress()
     }
 
