@@ -1,40 +1,78 @@
 import FileProvider
 import UniformTypeIdentifiers
 
-// Minimal NSFileProviderItem. M0.5/M1-start: enough to represent the root
-// container so a freshly registered domain shows as a valid (empty) Stow folder.
-// File items (with documentSize, contentVersion, s3 metadata, dataless state)
-// are built from the SQLite index later in M1.
+/// An NSFileProviderItem backed by a Stow File Provider record. The OS reads
+/// these to render the Stow folder and to decide what's dataless vs local.
 final class StowItem: NSObject, NSFileProviderItem {
-    let itemIdentifier: NSFileProviderItemIdentifier
-    let parentItemIdentifier: NSFileProviderItemIdentifier
-    let filename: String
-    let contentType: UTType
-    let capabilities: NSFileProviderItemCapabilities
+    private let model: StowFPItem
+    private let isRoot: Bool
 
-    /// The root container of the Stow domain.
-    static var root: StowItem {
-        StowItem(
-            identifier: .rootContainer,
-            parent: .rootContainer,
-            filename: "Stow",
-            contentType: .folder,
-            capabilities: [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
-        )
+    init(_ model: StowFPItem) {
+        self.model = model
+        self.isRoot = false
+        super.init()
     }
 
-    init(
-        identifier: NSFileProviderItemIdentifier,
-        parent: NSFileProviderItemIdentifier,
-        filename: String,
-        contentType: UTType,
-        capabilities: NSFileProviderItemCapabilities
-    ) {
-        self.itemIdentifier = identifier
-        self.parentItemIdentifier = parent
-        self.filename = filename
-        self.contentType = contentType
-        self.capabilities = capabilities
+    private init(root: Bool) {
+        // Root container placeholder.
+        self.model = StowFPItem([
+            "item_id": NSFileProviderItemIdentifier.rootContainer.rawValue,
+            "parent_id": NSFileProviderItemIdentifier.rootContainer.rawValue,
+            "filename": "Stow",
+            "is_folder": true,
+        ])!
+        self.isRoot = true
         super.init()
+    }
+
+    static var root: StowItem { StowItem(root: true) }
+
+    var itemIdentifier: NSFileProviderItemIdentifier {
+        isRoot ? .rootContainer : NSFileProviderItemIdentifier(model.itemID)
+    }
+
+    var parentItemIdentifier: NSFileProviderItemIdentifier {
+        // The provider stores the root's children under the ROOT sentinel string;
+        // map that back to .rootContainer for the OS.
+        if model.parentID == NSFileProviderItemIdentifier.rootContainer.rawValue
+            || model.parentID == "NSFileProviderRootContainerItemIdentifier" {
+            return .rootContainer
+        }
+        return NSFileProviderItemIdentifier(model.parentID)
+    }
+
+    var filename: String { model.filename }
+
+    var contentType: UTType {
+        if isRoot || model.isFolder { return .folder }
+        return UTType(model.contentType) ?? .data
+    }
+
+    var documentSize: NSNumber? {
+        (isRoot || model.isFolder) ? nil : NSNumber(value: model.size)
+    }
+
+    var childItemCount: NSNumber? {
+        (isRoot || model.isFolder) ? nil : NSNumber(value: 0)
+    }
+
+    /// Bumped whenever content changes so the OS knows to re-fetch.
+    var itemVersion: NSFileProviderItemVersion {
+        let v = "\(model.version)".data(using: .utf8)!
+        return NSFileProviderItemVersion(contentVersion: v, metadataVersion: v)
+    }
+
+    var capabilities: NSFileProviderItemCapabilities {
+        if isRoot || model.isFolder {
+            return [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
+        }
+        return [.allowsReading, .allowsWriting, .allowsDeleting, .allowsRenaming, .allowsReparenting]
+    }
+
+    /// Lazy download: files stay dataless until first read, and remain evictable.
+    var contentPolicy: NSFileProviderContentPolicy { .downloadLazily }
+
+    var contentModificationDate: Date? {
+        Date(timeIntervalSince1970: TimeInterval(model.modifiedAt))
     }
 }

@@ -87,9 +87,23 @@ fn default_excludes() -> Vec<String> {
 }
 
 impl Config {
-    /// Directory holding config + index: `~/Library/Application Support/ai.exla.stow`.
+    /// Directory holding config + index.
+    ///
+    /// Sandboxed callers (the File Provider extension, the agent) can't compute
+    /// the shared location themselves — `dirs::*` resolve to the per-process
+    /// sandbox container, not the real home. So Swift resolves the App Group
+    /// container via `containerURL(forSecurityApplicationGroupIdentifier:)` and
+    /// passes it in `STOW_GROUP_DIR`. When set, that's the single shared store
+    /// for config + both SQLite DBs, reachable by the CLI and the sandboxed
+    /// extension alike. Falls back to `~/Library/Application Support/ai.exla.stow`
+    /// for the bare CLI when no group dir is provided.
     pub fn support_dir() -> StowResult<PathBuf> {
-        let base = dirs::data_dir() // ~/Library/Application Support on macOS
+        if let Ok(dir) = std::env::var("STOW_GROUP_DIR") {
+            if !dir.trim().is_empty() {
+                return Ok(PathBuf::from(dir));
+            }
+        }
+        let base = dirs::data_dir()
             .ok_or_else(|| StowError::Io("cannot resolve Application Support dir".into()))?;
         Ok(base.join("ai.exla.stow"))
     }

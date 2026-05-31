@@ -2,41 +2,50 @@ import FileProvider
 import os.log
 
 /// The replicated File Provider extension — the OS-driven hot path. `fileproviderd`
-/// instantiates this per domain and calls `fetchContents` to rehydrate dataless
-/// files on access.
+/// instantiates this per domain. It delegates all storage to the Rust core
+/// (`StowProvider`), which talks to S3 + the shared SQLite index.
 ///
-/// M0: skeleton that compiles, links the Rust core, and satisfies the
-/// `NSFileProviderReplicatedExtension` contract with not-implemented stubs. The
-/// real enumeration / upload / rehydration logic lands in M1.
+/// - `enumerator`/`item` render the Stow folder from the index.
+/// - `createItem`/`modifyItem` upload new/changed files to S3.
+/// - `fetchContents` downloads bytes from S3 on demand (rehydrate on open).
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     let domain: NSFileProviderDomain
     private let log = Logger(subsystem: "ai.exla.stow", category: "fileprovider")
+    private let work = DispatchQueue(label: "ai.exla.stow.fp", qos: .userInitiated, attributes: .concurrent)
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
         super.init()
-        // Prove the Rust static library also links into the extension process.
-        log.info("StowFileProvider init for domain \(domain.displayName, privacy: .public); core v\(StowCoreLib.version(), privacy: .public)")
+        // Point the Rust core at the shared App Group container (we're sandboxed).
+        StowCoreLib.bootstrap()
+        log.info("StowFileProvider init; core v\(StowCoreLib.version(), privacy: .public)")
     }
 
-    func invalidate() {
-        // Tear down per-domain resources (S3 client, DB handle) in M1.
-    }
+    func invalidate() {}
+
+    // MARK: - Metadata
 
     func item(
         for identifier: NSFileProviderItemIdentifier,
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        // The root container makes the domain a valid, browsable (empty) folder.
-        // M1: look up other identifiers in the SQLite index.
         if identifier == .rootContainer {
             completionHandler(StowItem.root, nil)
-        } else {
-            completionHandler(nil, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
+        work.async {
+            do {
+                let it = try StowProvider.item(id: identifier.rawValue)
+                completionHandler(StowItem(it), nil)
+            } catch {
+                completionHandler(nil, NSFileProviderError(.noSuchItem))
+            }
         }
         return Progress()
     }
+
+    // MARK: - Rehydrate on open
 
     func fetchContents(
         for itemIdentifier: NSFileProviderItemIdentifier,
@@ -44,11 +53,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        // M1: look up the S3 key in the index, download via stow_fetch_object,
-        // return the materialized temp URL here.
-        completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
-        return Progress()
+        let progress = Progress(totalUnitCount: 100)
+        work.async {
+            do {
+                // Download to a unique temp file, then hand the URL to the OS.
+                let tmp = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                let it = try StowProvider.fetch(id: itemIdentifier.rawValue, outPath: tmp.path)
+                progress.completedUnitCount = 100
+                completionHandler(tmp, StowItem(it), nil)
+            } catch {
+                self.log.error("fetchContents failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(nil, nil, NSFileProviderError(.serverUnreachable))
+            }
+        }
+        return progress
     }
+
+    // MARK: - Create (upload)
 
     func createItem(
         basedOn itemTemplate: NSFileProviderItem,
@@ -58,9 +80,25 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, NSFileProviderError(.noSuchItem))
+        let parent = itemTemplate.parentItemIdentifier == .rootContainer
+            ? NSFileProviderItemIdentifier.rootContainer.rawValue
+            : itemTemplate.parentItemIdentifier.rawValue
+        let name = itemTemplate.filename
+        let isFolder = (itemTemplate.contentType == .folder)
+        work.async {
+            do {
+                let it = try StowProvider.create(parentID: parent, filename: name,
+                                                 isFolder: isFolder, tempPath: url?.path)
+                completionHandler(StowItem(it), [], false, nil)
+            } catch {
+                self.log.error("createItem failed: \(error.localizedDescription, privacy: .public)")
+                completionHandler(nil, [], false, error)
+            }
+        }
         return Progress()
     }
+
+    // MARK: - Modify
 
     func modifyItem(
         _ item: NSFileProviderItem,
@@ -71,9 +109,25 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, NSFileProviderError(.noSuchItem))
+        let id = item.itemIdentifier.rawValue
+        work.async {
+            do {
+                if changedFields.contains(.contents), let url = newContents {
+                    let it = try StowProvider.modify(id: id, tempPath: url.path)
+                    completionHandler(StowItem(it), [], false, nil)
+                } else {
+                    // Metadata-only change we don't track yet: echo current state.
+                    let it = try StowProvider.item(id: id)
+                    completionHandler(StowItem(it), [], false, nil)
+                }
+            } catch {
+                completionHandler(nil, [], false, error)
+            }
+        }
         return Progress()
     }
+
+    // MARK: - Delete
 
     func deleteItem(
         identifier: NSFileProviderItemIdentifier,
@@ -82,14 +136,23 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
-        completionHandler(NSFileProviderError(.noSuchItem))
+        work.async {
+            do {
+                try StowProvider.delete(id: identifier.rawValue)
+                completionHandler(nil)
+            } catch {
+                completionHandler(error)
+            }
+        }
         return Progress()
     }
+
+    // MARK: - Enumeration
 
     func enumerator(
         for containerItemIdentifier: NSFileProviderItemIdentifier,
         request: NSFileProviderRequest
     ) throws -> NSFileProviderEnumerator {
-        FileProviderEnumerator(enumeratedItemIdentifier: containerItemIdentifier)
+        FileProviderEnumerator(container: containerItemIdentifier)
     }
 }

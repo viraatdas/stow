@@ -27,6 +27,8 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
     private let log = Logger(subsystem: "ai.exla.stow", category: "agent")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Share state via the App Group container (sandboxed).
+        StowCoreLib.bootstrap()
         log.info("StowAgent launched; core v\(StowCoreLib.version(), privacy: .public)")
         stowDiag("launched; core v\(StowCoreLib.version())")
         // Register the Stow domain so "Stow" appears in Finder's sidebar.

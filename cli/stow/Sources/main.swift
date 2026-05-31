@@ -9,6 +9,8 @@ import Foundation
 // sandbox-exec, which can't nest inside Homebrew's build sandbox. A tiny built-in
 // parser keeps `brew install` (build-from-source) fully self-contained.
 
+// Share config + DBs with the sandboxed agent/extension via the App Group dir.
+StowCoreLib.bootstrap()
 let coreVersion = StowCoreLib.version()
 
 func stderr(_ s: String) {
