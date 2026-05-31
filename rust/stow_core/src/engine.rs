@@ -76,12 +76,19 @@ pub struct StatusResult {
 
 /// Detect AWS creds, derive a unique bucket, create it, persist config.
 pub fn init(region_arg: Option<String>) -> StowResult<InitResult> {
+    // Never probe EC2 instance metadata (IMDS) — on a laptop that endpoint isn't
+    // reachable and the SDK's default chain blocks on it for a long time, which
+    // made `stow init` hang. We only ever use env / ~/.aws / SSO credentials.
+    std::env::set_var("AWS_EC2_METADATA_DISABLED", "true");
     let region = region_arg.unwrap_or_else(config::default_region);
     let rt = runtime()?;
     rt.block_on(async {
         let account = s3::account_id(&region).await?;
         let bucket = config::derive_bucket_name(&format!("{account}-{region}"));
-        let client = s3::client(&region).await?;
+        // Capture credentials now (CLI is unsandboxed) so the sandboxed extension
+        // can reuse them later from the shared config.
+        let creds = s3::resolve_default_creds(&region).await.ok();
+        let client = s3::client(&region, creds.clone()).await?;
         let existed = client.head_bucket().bucket(&bucket).send().await.is_ok();
         s3::ensure_bucket(&client, &bucket, &region).await?;
         let cfg = Config {
@@ -89,6 +96,9 @@ pub fn init(region_arg: Option<String>) -> StowResult<InitResult> {
             region: region.clone(),
             prefix: "objects/".to_string(),
             policy: config::Policy::default(),
+            access_key_id: creds.as_ref().map(|c| c.access_key_id.clone()),
+            secret_access_key: creds.as_ref().map(|c| c.secret_access_key.clone()),
+            session_token: creds.as_ref().and_then(|c| c.session_token.clone()),
         };
         cfg.save()?;
         // Touch the index so it's ready.
