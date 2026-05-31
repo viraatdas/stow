@@ -132,6 +132,36 @@ pub extern "C" fn stow_engine_status() -> *mut c_char {
     json_call(engine::status)
 }
 
+/// `stow scan` — dry run: list auto-offload candidates. Returns ScanResult JSON.
+#[no_mangle]
+pub extern "C" fn stow_engine_scan() -> *mut c_char {
+    json_call(engine::scan)
+}
+
+/// `stow auto` — apply the policy: offload all candidates. Returns AutoResult JSON.
+#[no_mangle]
+pub extern "C" fn stow_engine_auto() -> *mut c_char {
+    json_call(engine::auto_offload)
+}
+
+/// Return the full persisted config (bucket/region/policy) as JSON.
+#[no_mangle]
+pub extern "C" fn stow_engine_get_config() -> *mut c_char {
+    json_call(engine::get_config)
+}
+
+/// Replace the policy block from a JSON object. Returns the updated config JSON.
+///
+/// # Safety
+/// `policy_json` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_engine_set_policy(policy_json: *const c_char) -> *mut c_char {
+    json_call(|| {
+        let j = cstr(policy_json, "policy_json")?;
+        engine::set_policy(j)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

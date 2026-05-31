@@ -17,18 +17,27 @@ func stderr(_ s: String) {
 
 func printUsage() {
     print("""
-    stow — offload unused files on macOS; rehydrate transparently on access.
+    stow — offload unused files on macOS to your own S3.
 
     USAGE:
       stow <command> [options]
 
     COMMANDS:
-      init                 Set up Stow: auto-provision S3 and register the Stow folder
-      add <path>           Manage a file or folder with Stow
-      status               Show offload status and space saved
-      offload [--now]      Offload eligible files to the cloud
-      restore <path>       Force-rehydrate an offloaded file to local
-      config               View or change Stow configuration
+      init                 Auto-provision an S3 bucket in your AWS account
+      offload <path>       Offload one file (upload + free disk space)
+      restore <path>       Bring an offloaded file back, byte-for-byte
+      status               Show what's offloaded and space saved
+
+      scan                 Dry run: list files auto-offload would pick (no changes)
+      auto                 Offload everything matching the policy now
+      schedule [HH:MM]     Run `auto` automatically every day (default 12:00)
+      unschedule           Stop the daily automatic run
+
+      config               Show the auto-offload policy
+      config set-size <MB> Minimum file size to offload (default 10)
+      config set-age <days> Days untouched before offloading (default 90)
+      config add-root <dir>     Add a folder to auto-scan
+      config remove-root <dir>  Remove a folder from auto-scan
 
     OPTIONS:
       --version            Show version
@@ -127,15 +136,106 @@ case "status":
         }
     } catch { fail(error) }
 
-case "config":
-    print("core: v\(coreVersion)")
+case "scan":
     do {
-        let r = try StowEngine.status()
-        print("bucket: \(r["bucket"] as? String ?? "?")")
-        print("region: \(r["region"] as? String ?? "?")")
-    } catch {
-        print("not initialized — run `stow init`")
+        let r = try StowEngine.scan()
+        let count = r["candidate_count"] as? Int ?? 0
+        let total = r["reclaimable_bytes"] as? Int ?? 0
+        let minMB = (r["min_size_bytes"] as? Int ?? 0) / (1024 * 1024)
+        let age = r["min_age_days"] as? Int ?? 0
+        let roots = (r["roots"] as? [String])?.joined(separator: ", ") ?? "?"
+        print("policy: files ≥ \(minMB) MB, untouched ≥ \(age) days, in \(roots)")
+        print("found: \(count) candidate(s), \(humanBytes(total)) reclaimable\n")
+        if let cands = r["candidates"] as? [[String: Any]], !cands.isEmpty {
+            for c in cands.prefix(40) {
+                let d = c["days_unused"] as? Int ?? 0
+                print("  \(humanBytes(c["size"] as? Int ?? 0))\t\(d)d unused\t\(c["path"] as? String ?? "?")")
+            }
+            if cands.count > 40 { print("  … and \(cands.count - 40) more") }
+            print("\nThese are NOT offloaded yet. Run `stow auto` to offload them,")
+            print("or `stow schedule` to do it automatically every day.")
+        } else {
+            print("Nothing matches the policy right now.")
+        }
+    } catch { fail(error) }
+
+case "auto":
+    do {
+        let r = try StowEngine.auto()
+        let n = r["offloaded_count"] as? Int ?? 0
+        let freed = r["bytes_freed"] as? Int ?? 0
+        print("✓ offloaded \(n) file(s), freed \(humanBytes(freed))")
+        if let fails = r["failures"] as? [[String: Any]], !fails.isEmpty {
+            print("\n\(fails.count) skipped:")
+            for f in fails.prefix(10) {
+                print("  \(f["path"] as? String ?? "?"): \(f["error"] as? String ?? "?")")
+            }
+        }
+        if n > 0 { print("\nRestore any of them with: stow restore <path>") }
+    } catch { fail(error) }
+
+case "schedule":
+    // Optional HH:MM (default 12:00)
+    var hour = 12, minute = 0
+    if let t = rest.first(where: { $0.contains(":") }) {
+        let parts = t.split(separator: ":")
+        if parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) { hour = h; minute = m }
     }
+    do {
+        try Scheduler.install(hour: hour, minute: minute)
+        print(String(format: "✓ Stow will auto-offload daily at %02d:%02d.", hour, minute))
+        print("  It runs `stow auto` (policy: see `stow config`). Stop with `stow unschedule`.")
+        print("  Tip: run `stow scan` first to preview what it'll pick.")
+    } catch { fail(error) }
+
+case "unschedule":
+    do {
+        try Scheduler.uninstall()
+        print("✓ Automatic offloading disabled.")
+    } catch { fail(error) }
+
+case "config":
+    let sub = rest.first
+    do {
+        switch sub {
+        case "set-size":
+            let mb = Int(requireArg(Array(rest.dropFirst()), "MB")) ?? -1
+            guard mb >= 1 else { stderr("error: size must be ≥ 1 MB"); exit(2) }
+            try Policy.update { $0["min_size_bytes"] = mb * 1024 * 1024 }
+            print("✓ minimum size set to \(mb) MB")
+        case "set-age":
+            let days = Int(requireArg(Array(rest.dropFirst()), "days")) ?? -1
+            guard days >= 1 else { stderr("error: age must be ≥ 1 day"); exit(2) }
+            try Policy.update { $0["min_age_days"] = days }
+            print("✓ minimum age set to \(days) days")
+        case "add-root":
+            let dir = absolutePath(requireArg(Array(rest.dropFirst()), "dir"))
+            try Policy.update {
+                var roots = ($0["roots"] as? [String]) ?? []
+                if !roots.contains(dir) { roots.append(dir) }
+                $0["roots"] = roots
+            }
+            print("✓ added scan folder: \(dir)")
+        case "remove-root":
+            let dir = absolutePath(requireArg(Array(rest.dropFirst()), "dir"))
+            try Policy.update {
+                let roots = (($0["roots"] as? [String]) ?? []).filter { $0 != dir }
+                $0["roots"] = roots
+            }
+            print("✓ removed scan folder: \(dir)")
+        default:
+            let cfg = try StowEngine.getConfig()
+            print("bucket: \(cfg["bucket"] as? String ?? "?") (\(cfg["region"] as? String ?? "?"))")
+            if let p = cfg["policy"] as? [String: Any] {
+                let minMB = (p["min_size_bytes"] as? Int ?? 0) / (1024 * 1024)
+                print("\nauto-offload policy:")
+                print("  min size:  \(minMB) MB")
+                print("  min age:   \(p["min_age_days"] as? Int ?? 0) days untouched")
+                print("  folders:   \((p["roots"] as? [String])?.joined(separator: ", ") ?? "?")")
+            }
+            print("\nschedule:  \(Scheduler.isInstalled() ? "ON (daily)" : "off — enable with `stow schedule`")")
+        }
+    } catch { fail(error) }
 
 default:
     stderr("error: unknown command '\(command)'")

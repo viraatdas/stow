@@ -60,4 +60,25 @@ public enum StowEngine {
     public static func status() throws -> [String: Any] {
         try take(stow_engine_status())
     }
+
+    /// `stow scan` — dry run; list auto-offload candidates.
+    public static func scan() throws -> [String: Any] {
+        try take(stow_engine_scan())
+    }
+
+    /// `stow auto` — apply the policy and offload candidates.
+    public static func auto() throws -> [String: Any] {
+        try take(stow_engine_auto())
+    }
+
+    /// Full persisted config (bucket/region/policy).
+    public static func getConfig() throws -> [String: Any] {
+        try take(stow_engine_get_config())
+    }
+
+    /// Replace the policy block (JSON object). Returns updated config.
+    @discardableResult
+    public static func setPolicy(_ json: String) throws -> [String: Any] {
+        try json.withCString { try take(stow_engine_set_policy($0)) }
+    }
 }

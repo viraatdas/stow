@@ -1,6 +1,6 @@
 [package]
 name = "stow_core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 publish = false
 
@@ -25,3 +25,4 @@ aws-sdk-s3 = "1"
 aws-sdk-sts = "1"
 aws-credential-types = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+walkdir = "2"

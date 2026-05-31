@@ -88,6 +88,7 @@ pub fn init(region_arg: Option<String>) -> StowResult<InitResult> {
             bucket: bucket.clone(),
             region: region.clone(),
             prefix: "objects/".to_string(),
+            policy: config::Policy::default(),
         };
         cfg.save()?;
         // Touch the index so it's ready.
@@ -167,6 +168,91 @@ pub fn offload(path: &str) -> StowResult<OffloadResult> {
     })
 }
 
+// ---- scan / auto-offload -----------------------------------------------------
+
+#[derive(Serialize)]
+pub struct ScanResult {
+    pub candidate_count: usize,
+    pub reclaimable_bytes: i64,
+    pub min_size_bytes: u64,
+    pub min_age_days: u64,
+    pub roots: Vec<String>,
+    pub candidates: Vec<crate::policy::Candidate>,
+}
+
+/// Dry run: list what `stow auto` would offload, largest first. No changes.
+pub fn scan() -> StowResult<ScanResult> {
+    let cfg = load_cfg()?;
+    let candidates = crate::policy::scan(&cfg)?;
+    let reclaimable_bytes = candidates.iter().map(|c| c.size).sum();
+    Ok(ScanResult {
+        candidate_count: candidates.len(),
+        reclaimable_bytes,
+        min_size_bytes: cfg.policy.min_size_bytes,
+        min_age_days: cfg.policy.min_age_days,
+        roots: cfg.policy.roots.clone(),
+        candidates,
+    })
+}
+
+#[derive(Serialize)]
+pub struct AutoFailure {
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Serialize)]
+pub struct AutoResult {
+    pub offloaded_count: usize,
+    pub bytes_freed: i64,
+    pub offloaded: Vec<String>,
+    pub failures: Vec<AutoFailure>,
+}
+
+/// Apply the policy: offload every candidate. This is what the scheduled job
+/// (and `stow auto`) runs.
+pub fn auto_offload() -> StowResult<AutoResult> {
+    let cfg = load_cfg()?;
+    let candidates = crate::policy::scan(&cfg)?;
+    let mut res = AutoResult {
+        offloaded_count: 0,
+        bytes_freed: 0,
+        offloaded: Vec::new(),
+        failures: Vec::new(),
+    };
+    for c in candidates {
+        match offload(&c.path) {
+            Ok(o) => {
+                res.offloaded_count += 1;
+                res.bytes_freed += o.bytes_freed;
+                res.offloaded.push(c.path);
+            }
+            Err(e) => res.failures.push(AutoFailure {
+                path: c.path,
+                error: e.to_string(),
+            }),
+        }
+    }
+    Ok(res)
+}
+
+// ---- config accessors --------------------------------------------------------
+
+/// Return the full persisted config (bucket/region/policy) as-is.
+pub fn get_config() -> StowResult<Config> {
+    load_cfg()
+}
+
+/// Replace the policy block with the provided JSON and persist.
+pub fn set_policy(policy_json: &str) -> StowResult<Config> {
+    let pol: config::Policy = serde_json::from_str(policy_json)
+        .map_err(|e| StowError::InvalidConfig(format!("policy: {e}")))?;
+    let mut cfg = load_cfg()?;
+    cfg.policy = pol;
+    cfg.save()?;
+    Ok(cfg)
+}
+
 // ---- restore -----------------------------------------------------------------
 
 /// Download an offloaded file from S3 and rewrite it byte-identically.
@@ -195,7 +281,10 @@ pub fn restore(path: &str) -> StowResult<RestoreResult> {
     std::fs::write(p, &data).map_err(|e| StowError::Io(e.to_string()))?;
     std::fs::set_permissions(p, std::fs::Permissions::from_mode(rec.mode))
         .map_err(|e| StowError::Io(e.to_string()))?;
-    set_mtime(p, rec.mtime)?;
+    // Preserve the original modification time, but set access time to NOW: the
+    // file was just restored/accessed, so it must NOT immediately re-qualify for
+    // auto-offload (the policy uses max(atime, mtime) as "last used").
+    set_times(p, now(), rec.mtime)?;
 
     Ok(RestoreResult {
         path: path.to_string(),
@@ -234,7 +323,7 @@ pub fn status() -> StowResult<StatusResult> {
 
 // ---- placeholder helpers -----------------------------------------------------
 
-fn is_placeholder(p: &Path) -> StowResult<bool> {
+pub(crate) fn is_placeholder(p: &Path) -> StowResult<bool> {
     let md = match std::fs::metadata(p) {
         Ok(m) => m,
         Err(_) => return Ok(false),
@@ -276,13 +365,15 @@ fn write_placeholder(p: &Path, cfg: &Config, rec: &Record) -> StowResult<()> {
     Ok(())
 }
 
-/// Set a file's modification (and access) time via libc.
-fn set_mtime(p: &Path, mtime: i64) -> StowResult<()> {
+/// Set a file's access and modification times via libc.
+fn set_times(p: &Path, atime: i64, mtime: i64) -> StowResult<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     let c = CString::new(p.as_os_str().as_bytes()).map_err(|e| StowError::Io(e.to_string()))?;
-    let tv = libc::timeval { tv_sec: mtime as libc::time_t, tv_usec: 0 };
-    let times = [tv, tv]; // [atime, mtime]
+    let times = [
+        libc::timeval { tv_sec: atime as libc::time_t, tv_usec: 0 },
+        libc::timeval { tv_sec: mtime as libc::time_t, tv_usec: 0 },
+    ]; // [atime, mtime]
     let rc = unsafe { libc::utimes(c.as_ptr(), times.as_ptr()) };
     if rc != 0 {
         return Err(StowError::Io(format!(

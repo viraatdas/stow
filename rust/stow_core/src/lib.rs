@@ -15,6 +15,7 @@ mod engine;
 mod error;
 mod ffi;
 mod index;
+mod policy;
 mod s3;
 
 // Re-export the FFI surface so cbindgen and linkers see it from the crate root.

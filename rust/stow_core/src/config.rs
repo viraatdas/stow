@@ -17,10 +17,73 @@ pub struct Config {
     /// Key prefix within the bucket.
     #[serde(default = "default_prefix")]
     pub prefix: String,
+    /// Auto-offload policy (smart, conservative defaults).
+    #[serde(default)]
+    pub policy: Policy,
 }
 
 fn default_prefix() -> String {
     "objects/".to_string()
+}
+
+/// Smart-default policy for what `stow auto` will offload. Deliberately
+/// conservative: only large, genuinely-stale files in a few safe locations.
+/// Tuned so nothing surprising gets moved (remember: until the File Provider
+/// layer lands, an offloaded file is a placeholder until `stow restore`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Policy {
+    /// Minimum file size to consider. Small files aren't worth offloading.
+    #[serde(default = "default_min_size")]
+    pub min_size_bytes: u64,
+    /// A file must be untouched (neither read nor modified) for at least this
+    /// many days before it's an offload candidate.
+    #[serde(default = "default_min_age_days")]
+    pub min_age_days: u64,
+    /// Directories scanned for candidates (absolute paths).
+    #[serde(default = "default_roots")]
+    pub roots: Vec<String>,
+    /// Path substrings that exclude a file from consideration.
+    #[serde(default = "default_excludes")]
+    pub excludes: Vec<String>,
+}
+
+impl Default for Policy {
+    fn default() -> Self {
+        Policy {
+            min_size_bytes: default_min_size(),
+            min_age_days: default_min_age_days(),
+            roots: default_roots(),
+            excludes: default_excludes(),
+        }
+    }
+}
+
+fn default_min_size() -> u64 {
+    10 * 1024 * 1024 // 10 MiB — below this, offloading isn't worth it
+}
+
+fn default_min_age_days() -> u64 {
+    90 // conservative: a full quarter untouched before we'd move it
+}
+
+fn default_roots() -> Vec<String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    ["Downloads", "Desktop", "Movies"]
+        .iter()
+        .map(|d| home.join(d).to_string_lossy().into_owned())
+        .collect()
+}
+
+fn default_excludes() -> Vec<String> {
+    // Substrings; anything matching is skipped. Keep system/app/cache areas safe.
+    vec![
+        "/Library/".into(),
+        "/.Trash/".into(),
+        "node_modules".into(),
+        "/.git/".into(),
+        "/DerivedData/".into(),
+        "/.venv/".into(),
+    ]
 }
 
 impl Config {
