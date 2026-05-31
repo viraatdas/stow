@@ -10,6 +10,11 @@ enum StowDomain {
 
     private static let log = Logger(subsystem: "ai.exla.stow", category: "domain")
 
+    /// The domain value, reused by the evictor.
+    static var domain: NSFileProviderDomain {
+        NSFileProviderDomain(identifier: identifier, displayName: displayName)
+    }
+
     /// Idempotently register the domain. Safe to call on every launch — if it's
     /// already present, the system treats the add as a no-op refresh.
     static func register() {
