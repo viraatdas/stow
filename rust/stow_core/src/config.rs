@@ -20,6 +20,15 @@ pub struct Config {
     /// Auto-offload policy (smart, conservative defaults).
     #[serde(default)]
     pub policy: Policy,
+    /// AWS credentials captured at `stow init` time. Stored here because the
+    /// sandboxed File Provider extension cannot read `~/.aws`; the unsandboxed
+    /// CLI resolves them once and persists them in the shared group container.
+    #[serde(default)]
+    pub access_key_id: Option<String>,
+    #[serde(default)]
+    pub secret_access_key: Option<String>,
+    #[serde(default)]
+    pub session_token: Option<String>,
 }
 
 fn default_prefix() -> String {
@@ -141,6 +150,22 @@ impl Config {
     /// The S3 object key for a given content hash.
     pub fn object_key(&self, hash: &str) -> String {
         format!("{}{}", self.prefix, hash)
+    }
+
+    /// Explicit credentials captured at init, if present. The sandboxed
+    /// extension relies on these; the CLI falls back to the default chain when
+    /// they're absent (returns None).
+    pub fn creds(&self) -> Option<crate::s3::Creds> {
+        match (&self.access_key_id, &self.secret_access_key) {
+            (Some(ak), Some(sk)) if !ak.is_empty() && !sk.is_empty() => {
+                Some(crate::s3::Creds {
+                    access_key_id: ak.clone(),
+                    secret_access_key: sk.clone(),
+                    session_token: self.session_token.clone(),
+                })
+            }
+            _ => None,
+        }
     }
 }
 

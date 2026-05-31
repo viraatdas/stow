@@ -3,22 +3,70 @@
 //! Tokio runtime.
 
 use crate::error::{StowError, StowResult};
-use aws_sdk_s3::config::Region;
+use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use aws_sdk_s3::Client;
 
-/// Build an S3 client for `region`, resolving credentials from the default chain
-/// (`~/.aws`, environment, SSO, etc.).
-pub async fn client(region: &str) -> StowResult<Client> {
-    let region = Region::new(region.to_string());
+/// Explicit AWS credentials, captured at init by the unsandboxed CLI and stored
+/// in the shared config so the sandboxed extension (which can't read ~/.aws) can
+/// use them.
+#[derive(Clone)]
+pub struct Creds {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: Option<String>,
+}
+
+/// Build an S3 client for `region`. When `creds` is provided, use them directly
+/// (the sandboxed path); otherwise fall back to the default chain (`~/.aws`,
+/// env, SSO — only works unsandboxed).
+pub async fn client(region: &str, creds: Option<Creds>) -> StowResult<Client> {
+    let region_obj = Region::new(region.to_string());
+    if let Some(c) = creds {
+        let creds = Credentials::new(
+            c.access_key_id,
+            c.secret_access_key,
+            c.session_token,
+            None,
+            "stow-config",
+        );
+        let conf = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(region_obj)
+            .credentials_provider(creds)
+            .load()
+            .await;
+        Ok(Client::new(&conf))
+    } else {
+        let conf = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(region_obj)
+            .load()
+            .await;
+        Ok(Client::new(&conf))
+    }
+}
+
+/// Resolve credentials from the default chain (unsandboxed CLI only) so they can
+/// be captured into config at init time.
+pub async fn resolve_default_creds(region: &str) -> StowResult<Creds> {
+    use aws_credential_types::provider::ProvideCredentials;
+    let region_obj = Region::new(region.to_string());
     let conf = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .region(region)
+        .region(region_obj)
         .load()
         .await;
-    // Credentials are validated on first real call (clear network/auth error if
-    // missing); no reliable synchronous precheck on SdkConfig.
-    Ok(Client::new(&conf))
+    let provider = conf
+        .credentials_provider()
+        .ok_or_else(|| StowError::InvalidConfig("no AWS credential provider".into()))?;
+    let c = provider
+        .provide_credentials()
+        .await
+        .map_err(|e| StowError::InvalidConfig(format!("AWS credentials: {e}")))?;
+    Ok(Creds {
+        access_key_id: c.access_key_id().to_string(),
+        secret_access_key: c.secret_access_key().to_string(),
+        session_token: c.session_token().map(|s| s.to_string()),
+    })
 }
 
 /// Return the caller's AWS account id (used to derive a unique bucket name).

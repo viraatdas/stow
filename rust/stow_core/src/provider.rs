@@ -198,7 +198,7 @@ pub fn create(parent_id: &str, filename: &str, is_folder: bool, temp_path: &str)
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()
         .map_err(|e| StowError::Unknown(e.to_string()))?;
     rt.block_on(async {
-        let c = s3::client(&cfg.region).await?;
+        let c = s3::client(&cfg.region, cfg.creds()).await?;
         s3::put_object(&c, &cfg.bucket, &s3_key, data).await
     })?;
 
@@ -226,7 +226,7 @@ pub fn update_contents(item_id: &str, temp_path: &str) -> StowResult<Item> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()
         .map_err(|e| StowError::Unknown(e.to_string()))?;
     rt.block_on(async {
-        let c = s3::client(&cfg.region).await?;
+        let c = s3::client(&cfg.region, cfg.creds()).await?;
         s3::put_object(&c, &cfg.bucket, &s3_key, data).await
     })?;
     it.size = size;
@@ -253,7 +253,7 @@ pub fn fetch(item_id: &str, out_path: &str) -> StowResult<Item> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()
         .map_err(|e| StowError::Unknown(e.to_string()))?;
     let data = rt.block_on(async {
-        let c = s3::client(&cfg.region).await?;
+        let c = s3::client(&cfg.region, cfg.creds()).await?;
         s3::get_object(&c, &cfg.bucket, &key).await
     })?;
 

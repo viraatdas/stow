@@ -162,6 +162,98 @@ pub unsafe extern "C" fn stow_engine_set_policy(policy_json: *const c_char) -> *
     })
 }
 
+// ---- File Provider FFI (called by the extension) ----------------------------
+
+/// Enumerate children of a container. Returns JSON array of items.
+///
+/// # Safety
+/// `parent_id` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_enumerate(parent_id: *const c_char) -> *mut c_char {
+    json_call(|| {
+        let p = cstr(parent_id, "parent_id")?;
+        crate::provider::Store::open()?.children(p)
+    })
+}
+
+/// Look up a single item by id. Returns item JSON, or error if not found.
+///
+/// # Safety
+/// `item_id` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_item(item_id: *const c_char) -> *mut c_char {
+    json_call(|| {
+        let id = cstr(item_id, "item_id")?;
+        crate::provider::Store::open()?
+            .get(id)?
+            .ok_or_else(|| crate::error::StowError::NotFound(id.to_string()))
+    })
+}
+
+/// Create an item (file or folder). For files, uploads `temp_path` to S3.
+///
+/// # Safety
+/// All non-null pointer args must be valid C strings.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_create(
+    parent_id: *const c_char,
+    filename: *const c_char,
+    is_folder: bool,
+    temp_path: *const c_char,
+) -> *mut c_char {
+    json_call(|| {
+        let parent = cstr(parent_id, "parent_id")?;
+        let name = cstr(filename, "filename")?;
+        let tmp = if temp_path.is_null() { "" } else { cstr(temp_path, "temp_path")? };
+        crate::provider::create(parent, name, is_folder, tmp)
+    })
+}
+
+/// Replace an item's contents from `temp_path` (uploads to S3).
+///
+/// # Safety
+/// All non-null pointer args must be valid C strings.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_modify(
+    item_id: *const c_char,
+    temp_path: *const c_char,
+) -> *mut c_char {
+    json_call(|| {
+        let id = cstr(item_id, "item_id")?;
+        let tmp = cstr(temp_path, "temp_path")?;
+        crate::provider::update_contents(id, tmp)
+    })
+}
+
+/// Download an item from S3 to `out_path` (rehydrate on open).
+///
+/// # Safety
+/// All non-null pointer args must be valid C strings.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_fetch(
+    item_id: *const c_char,
+    out_path: *const c_char,
+) -> *mut c_char {
+    json_call(|| {
+        let id = cstr(item_id, "item_id")?;
+        let out = cstr(out_path, "out_path")?;
+        crate::provider::fetch(id, out)
+    })
+}
+
+/// Delete an item (metadata only; S3 object is left for dedup safety).
+///
+/// # Safety
+/// `item_id` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_delete(item_id: *const c_char) -> *mut c_char {
+    json_call(|| {
+        let id = cstr(item_id, "item_id")?;
+        crate::provider::Store::open()?.delete(id)?;
+        Ok(true)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

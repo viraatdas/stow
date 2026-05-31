@@ -132,7 +132,7 @@ pub fn offload(path: &str) -> StowResult<OffloadResult> {
 
     let rt = runtime()?;
     let deduped = rt.block_on(async {
-        let client = s3::client(&cfg.region).await?;
+        let client = s3::client(&cfg.region, cfg.creds()).await?;
         let existed = client
             .head_object()
             .bucket(&cfg.bucket)
@@ -265,7 +265,7 @@ pub fn restore(path: &str) -> StowResult<RestoreResult> {
 
     let rt = runtime()?;
     let data = rt.block_on(async {
-        let client = s3::client(&cfg.region).await?;
+        let client = s3::client(&cfg.region, cfg.creds()).await?;
         s3::get_object(&client, &cfg.bucket, &rec.s3_key).await
     })?;
 
