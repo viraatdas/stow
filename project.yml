@@ -27,11 +27,13 @@ targets:
     sources:
       - path: apps/StowAgent/Sources
       - path: packages/StowCore/Sources/StowCore
+      - path: apps/StowAgent/Resources/AppIcon.icns
     info:
       path: apps/StowAgent/Info.plist
       properties:
         CFBundleName: Stow
         CFBundleDisplayName: Stow
+        CFBundleIconFile: AppIcon
         LSUIElement: true            # faceless: no Dock icon, no menu bar
         LSMinimumSystemVersion: "14.0"
     entitlements:
