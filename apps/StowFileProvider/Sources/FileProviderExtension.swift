@@ -93,8 +93,3 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         FileProviderEnumerator(enumeratedItemIdentifier: containerItemIdentifier)
     }
 }
-
-/// Placeholder error until typed errors land in M1.
-enum StowError: Error {
-    case notImplemented
-}
