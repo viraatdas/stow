@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef1f5"/>
+    </linearGradient>
+    <linearGradient id="slot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#23262e"/>
+      <stop offset="1" stop-color="#0e0f12"/>
+    </linearGradient>
+  </defs>
+
+  <!-- squircle background -->
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+
+  <!-- dashed slide arc coming down from top-left -->
+  <path d="M 235 235 Q 430 300 545 470" fill="none"
+        stroke="#c4cad4" stroke-width="22" stroke-linecap="round" stroke-dasharray="4 50"/>
+
+  <!-- storage slot (the thing being stowed into) -->
+  <ellipse cx="512" cy="742" rx="232" ry="60" fill="url(#slot)"/>
+  <!-- opening highlight ellipse -->
+  <ellipse cx="512" cy="730" rx="208" ry="46" fill="#000" opacity="0.55"/>
+
+  <!-- diving stick figure: head + upper body already entering the slot,
+       legs kicked up and trailing behind. Reads as a head-first dive. -->
+  <g stroke="#111111" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- head, just at the slot opening -->
+    <circle cx="560" cy="700" r="48" fill="#111111" stroke="none"/>
+    <!-- spine: from head up-and-back to the hips -->
+    <line x1="544" y1="660" x2="452" y2="540"/>
+    <!-- arms streamlined forward (diving into slot) -->
+    <line x1="556" y1="652" x2="612" y2="712"/>
+    <line x1="540" y1="664" x2="588" y2="724"/>
+    <!-- legs trailing up & apart behind the body -->
+    <line x1="452" y1="540" x2="360" y2="452"/>
+    <line x1="452" y1="540" x2="468" y2="416"/>
+  </g>
+</svg>
