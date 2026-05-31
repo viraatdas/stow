@@ -17,6 +17,12 @@ public enum StowCoreLib {
     /// extension, the agent, and the CLI all read/write the same config + DBs.
     /// MUST be called before any other FFI use. Idempotent.
     public static func bootstrap() {
+        // Never let the AWS SDK probe the EC2 instance-metadata endpoint. On a
+        // laptop (and especially inside the File Provider sandbox) that endpoint
+        // is unreachable and the SDK blocks on it for a long time — which made
+        // createItem/fetchContents hang and file copies into the Stow folder
+        // time out. We only ever use explicit creds from the shared config.
+        setenv("AWS_EC2_METADATA_DISABLED", "true", 1)
         let path: String
         if let url = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroup) {

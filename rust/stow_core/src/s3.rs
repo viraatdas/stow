@@ -22,6 +22,10 @@ pub struct Creds {
 /// (the sandboxed path); otherwise fall back to the default chain (`~/.aws`,
 /// env, SSO — only works unsandboxed).
 pub async fn client(region: &str, creds: Option<Creds>) -> StowResult<Client> {
+    // Belt-and-suspenders: never probe EC2 instance metadata (hangs on laptops
+    // and in the sandboxed extension). Swift bootstrap sets this too, but set it
+    // here so every code path is covered before the SDK loads.
+    std::env::set_var("AWS_EC2_METADATA_DISABLED", "true");
     let region_obj = Region::new(region.to_string());
     if let Some(c) = creds {
         let creds = Credentials::new(
