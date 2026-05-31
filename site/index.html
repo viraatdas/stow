@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>stow — offload your files on mac</title>
-<meta name="description" content="Automatically offload unused files from your Mac to your own S3 and restore them on demand. Smart conservative defaults, Spotlight-based usage detection. Fast, Rust-powered." />
+<meta name="description" content="A Finder folder that lives in the cloud. Files offload to your own S3 to free space; open one and it downloads back automatically. Built on Apple File Provider, Apple Silicon." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&display=swap" rel="stylesheet" />
@@ -98,43 +98,37 @@
 <body>
   <main class="wrap">
     <h1>stow</h1>
-    <p class="tag">Automatically offload files you haven&rsquo;t used from your Mac to your own S3, and restore them on demand.</p>
+    <p class="tag">A folder on your Mac that lives in the cloud. Files offload to your own S3 to free space &mdash; and the instant you open one, it downloads back automatically.</p>
 
-    <p class="lead">Turn on <code>stow schedule</code> and Stow checks once a day for large, stale files and offloads them &mdash; uploading to S3 and freeing the disk space. Smart, conservative defaults: only files <strong>&ge;&nbsp;10&nbsp;MB</strong>, <strong>untouched&nbsp;&ge;&nbsp;90&nbsp;days</strong> (by Spotlight&rsquo;s last-opened date), in <code>~/Downloads</code>, <code>~/Desktop</code>, and <code>~/Movies</code>. Nothing is touched until it clears every check, and <code>stow restore</code> always brings a file back byte-for-byte.</p>
+    <p class="lead">Stow adds a <strong>Stow folder</strong> to Finder. Drop files in and they upload to your S3 bucket. When disk gets tight, large files you haven&rsquo;t touched are quietly offloaded &mdash; they still show up in Finder, just at zero bytes on disk. <strong>The moment any app reads one, Stow streams it back from the cloud, transparently.</strong> No buttons, no waiting around, no thinking about it.</p>
 
-    <p class="lead" style="color:var(--muted);font-size:0.9rem;">Offloaded files become small placeholders until you run <code>stow restore</code> (there&rsquo;s no automatic restore-on-open yet). Run <code>stow scan</code> anytime to preview exactly what would be offloaded &mdash; nothing moves on a dry run.</p>
+    <p class="lead" style="color:var(--muted);font-size:0.9rem;">Built on Apple&rsquo;s File Provider framework &mdash; the same mechanism iCloud Drive and Dropbox use. Content is hashed, de-duplicated, and verified byte-for-byte. Everything stays in <em>your</em> AWS account.</p>
 
     <h2>Install</h2>
     <pre><code class="cmd">brew tap viraatdas/tap
 brew install stow</code></pre>
 
-    <h2>Use</h2>
+    <h2>Set up</h2>
     <pre><code class="cmd"><span class="c"># one-time: auto-provisions an S3 bucket in your AWS account</span>
-stow init
+stow init</code></pre>
 
-<span class="c"># preview what auto-offload would pick (dry run, no changes)</span>
-stow scan
+    <p class="lead" style="font-size:0.95rem;">That&rsquo;s it. A <strong>Stow</strong> folder appears in Finder&rsquo;s sidebar. Drag files into it &mdash; they live in the cloud now. Open any of them and they come right back.</p>
 
-<span class="c"># turn on automatic daily offloading</span>
-stow schedule
+    <h2>The CLI, if you want it</h2>
+    <pre><code class="cmd"><span class="c"># offload a specific file now (frees disk; opens it later to restore)</span>
+stow offload ~/Movies/big-render.mov
 
-<span class="c"># bring any file back, byte-for-byte identical</span>
-stow restore ~/Movies/big-render.mov</code></pre>
+<span class="c"># tune what auto-offloads (defaults: ≥10 MB, untouched ≥90 days)</span>
+stow config set-size 20
+stow config set-age 30
 
-    <h2>Tune</h2>
-    <pre><code class="cmd"><span class="c"># adjust the smart defaults</span>
-stow config set-size 20        <span class="c"># only files ≥ 20 MB</span>
-stow config set-age 30         <span class="c"># untouched ≥ 30 days</span>
-stow config add-root ~/Library/Caches
-
-stow config                    <span class="c"># show policy + schedule</span>
-stow offload ~/big.zip         <span class="c"># or offload one file by hand</span></code></pre>
+stow status                    <span class="c"># what&rsquo;s offloaded, space saved</span></code></pre>
 
     <p class="note">
       Files are stored in an S3 bucket in <em>your own</em> AWS account, using your
-      existing credentials. Content is hashed and de-duplicated; restores are
-      verified byte-for-byte. Stop automatic offloading anytime with
-      <code>stow unschedule</code>. Apple Silicon, macOS 14+.
+      existing credentials &mdash; Stow never sees your data. Open a file and it
+      downloads on demand; leave it alone and it stays in the cloud. Apple
+      Silicon, macOS 14+.
     </p>
 
     <footer>
