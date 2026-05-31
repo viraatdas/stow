@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stow — offload your files on mac</title>
+<meta name="description" content="Offload unused files on macOS to your own S3, restore on demand. A fast Rust-powered CLI." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #111;
+    --muted: #666;
+    --line: #e8e8e8;
+    --bg: #fff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-weight: 300;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 14vh 28px 18vh;
+  }
+  h1 {
+    font-weight: 200;
+    font-size: 3.2rem;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.4rem;
+  }
+  .tag {
+    font-weight: 300;
+    font-size: 1.15rem;
+    color: var(--muted);
+    margin: 0 0 3rem;
+  }
+  h2 {
+    font-weight: 400;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 3rem 0 0.9rem;
+  }
+  p { margin: 0 0 1rem; font-weight: 300; }
+  pre {
+    background: #fafafa;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 0 0 1rem;
+  }
+  code {
+    font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--ink);
+  }
+  .cmd { display: block; white-space: pre; }
+  .cmd .c { color: var(--muted); }
+  a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--line); }
+  a:hover { border-bottom-color: var(--ink); }
+  .note {
+    font-size: 0.9rem;
+    color: var(--muted);
+    border-left: 2px solid var(--line);
+    padding-left: 14px;
+    margin: 1.4rem 0;
+  }
+  footer {
+    margin-top: 5rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  footer a { border-bottom: none; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>stow</h1>
+    <p class="tag">Offload unused files on your Mac to your own S3, and restore them on demand.</p>
+
+    <h2>Install</h2>
+    <pre><code class="cmd">brew tap viraatdas/tap
+brew install stow</code></pre>
+
+    <h2>Use</h2>
+    <pre><code class="cmd"><span class="c"># one-time: auto-provisions an S3 bucket in your AWS account</span>
+stow init
+
+<span class="c"># upload a file to S3 and free the disk space</span>
+stow offload ~/Movies/big-render.mov
+
+<span class="c"># see what's offloaded</span>
+stow status
+
+<span class="c"># bring it back, byte-for-byte identical</span>
+stow restore ~/Movies/big-render.mov</code></pre>
+
+    <p class="note">
+      Files are stored in an S3 bucket in <em>your own</em> AWS account, using your
+      existing credentials. Content is hashed and de-duplicated; restores are
+      verified byte-for-byte. Apple Silicon, macOS 14+.
+    </p>
+
+    <footer>
+      <a href="https://github.com/viraatdas/stow">github.com/viraatdas/stow</a>
+      &nbsp;·&nbsp; built by <a href="https://viraat.dev">viraat</a>
+    </footer>
+  </main>
+</body>
+</html>
