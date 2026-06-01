@@ -1,6 +1,22 @@
 import FileProvider
 import os.log
 
+/// Append a timestamped trace line to a file the sandboxed extension can write:
+/// the App Group container. This is how we see what the extension does without
+/// access to fileproviderd's privileged logs.
+func fpTrace(_ s: String) {
+    let dir = FileManager.default
+        .containerURL(forSecurityApplicationGroupIdentifier: "group.ai.exla.stow")
+    guard let dir else { return }
+    let path = dir.appendingPathComponent("ext-trace.log").path
+    let line = "[\(Date().timeIntervalSince1970)] \(s)\n"
+    if let h = FileHandle(forWritingAtPath: path) {
+        h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
 /// The replicated File Provider extension — the OS-driven hot path. `fileproviderd`
 /// instantiates this per domain. It delegates all storage to the Rust core
 /// (`StowProvider`), which talks to S3 + the shared SQLite index.
@@ -18,6 +34,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         super.init()
         // Point the Rust core at the shared App Group container (we're sandboxed).
         StowCoreLib.bootstrap()
+        fpTrace("init: domain=\(domain.identifier.rawValue) core=\(StowCoreLib.version())")
         log.info("StowFileProvider init; core v\(StowCoreLib.version(), privacy: .public)")
     }
 
@@ -54,15 +71,18 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
         let progress = Progress(totalUnitCount: 100)
+        fpTrace("fetchContents START id=\(itemIdentifier.rawValue)")
         work.async {
             do {
                 // Download to a unique temp file, then hand the URL to the OS.
                 let tmp = FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString)
                 let it = try StowProvider.fetch(id: itemIdentifier.rawValue, outPath: tmp.path)
+                fpTrace("fetchContents got bytes; completing")
                 progress.completedUnitCount = 100
                 completionHandler(tmp, StowItem(it), nil)
             } catch {
+                fpTrace("fetchContents ERROR \(error)")
                 self.log.error("fetchContents failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(nil, nil, NSFileProviderError(.serverUnreachable))
             }
@@ -85,12 +105,17 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
             : itemTemplate.parentItemIdentifier.rawValue
         let name = itemTemplate.filename
         let isFolder = (itemTemplate.contentType == .folder)
+        fpTrace("createItem START name=\(name) folder=\(isFolder) hasContents=\(url != nil)")
         work.async {
             do {
+                fpTrace("createItem calling Rust create…")
                 let it = try StowProvider.create(parentID: parent, filename: name,
                                                  isFolder: isFolder, tempPath: url?.path)
+                fpTrace("createItem Rust returned id=\(it.itemID); calling completion")
                 completionHandler(StowItem(it), [], false, nil)
+                fpTrace("createItem DONE")
             } catch {
+                fpTrace("createItem ERROR \(error)")
                 self.log.error("createItem failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(nil, [], false, error)
             }

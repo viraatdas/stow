@@ -15,18 +15,26 @@ enum StowDomain {
         NSFileProviderDomain(identifier: identifier, displayName: displayName)
     }
 
-    /// Idempotently register the domain. Safe to call on every launch — if it's
-    /// already present, the system treats the add as a no-op refresh.
+    /// Register the domain. First removes ALL existing File Provider domains for
+    /// this app (clearing any stale/duplicate/wedged state from earlier runs),
+    /// then adds exactly one fresh domain. The accumulated duplicate domains were
+    /// wedging fileproviderd so it never launched the extension for file ops.
     static func register() {
-        let domain = NSFileProviderDomain(identifier: identifier, displayName: displayName)
-        stowDiag("calling NSFileProviderManager.add(\(displayName))…")
-        NSFileProviderManager.add(domain) { error in
-            if let error {
-                log.error("Stow domain registration failed: \(error.localizedDescription, privacy: .public)")
-                stowDiag("domain registration FAILED: \(error)")
-            } else {
-                log.info("Stow domain registered (\(displayName, privacy: .public))")
-                stowDiag("domain registered OK: \(displayName)")
+        stowDiag("removeAllDomains (clean slate)…")
+        NSFileProviderManager.removeAllDomains { removeErr in
+            if let removeErr {
+                stowDiag("removeAllDomains error (continuing): \(removeErr)")
+            }
+            let domain = NSFileProviderDomain(identifier: identifier, displayName: displayName)
+            stowDiag("calling NSFileProviderManager.add(\(displayName))…")
+            NSFileProviderManager.add(domain) { error in
+                if let error {
+                    log.error("Stow domain registration failed: \(error.localizedDescription, privacy: .public)")
+                    stowDiag("domain registration FAILED: \(error)")
+                } else {
+                    log.info("Stow domain registered (\(displayName, privacy: .public))")
+                    stowDiag("domain registered OK: \(displayName)")
+                }
             }
         }
     }

@@ -42,6 +42,18 @@ fn now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Append a trace line to the shared App Group container so we can see how far
+/// the (sandboxed) extension gets without privileged logs.
+fn rtrace(s: &str) {
+    if let Ok(dir) = std::env::var("STOW_GROUP_DIR") {
+        let path = std::path::Path::new(&dir).join("ext-trace.log");
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "[rust] {s}");
+        }
+    }
+}
+
 /// Path to the File Provider DB in the App Group container. Falls back to the
 /// support dir when the group container can't be resolved (e.g. CLI on a host
 /// without the entitlement) so tests and tooling still work.
@@ -175,9 +187,12 @@ fn new_id() -> String {
 /// Create a file item: read the source bytes, upload to S3 (content-addressed),
 /// and record it. Returns the new item. `temp_path` empty => a folder.
 pub fn create(parent_id: &str, filename: &str, is_folder: bool, temp_path: &str) -> StowResult<Item> {
+    rtrace("create: loading config");
     let cfg = Config::load()?
         .ok_or_else(|| StowError::InvalidConfig("not initialized — run `stow init`".into()))?;
+    rtrace("create: config loaded; opening store");
     let store = Store::open()?;
+    rtrace("create: store opened");
     let id = new_id();
 
     if is_folder {
@@ -190,16 +205,24 @@ pub fn create(parent_id: &str, filename: &str, is_folder: bool, temp_path: &str)
         return Ok(it);
     }
 
+    rtrace(&format!("create: reading temp {temp_path}"));
     let data = std::fs::read(temp_path).map_err(|e| StowError::Io(format!("{temp_path}: {e}")))?;
     let size = data.len() as i64;
+    rtrace(&format!("create: read {size} bytes; hashing"));
     let hash = blake3::hash(&data).to_hex().to_string();
     let s3_key = format!("fp/{hash}");
+    rtrace(&format!("create: have creds={}; building runtime", cfg.creds().is_some()));
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()
         .map_err(|e| StowError::Unknown(e.to_string()))?;
+    rtrace("create: runtime built; entering block_on");
     rt.block_on(async {
+        rtrace("create: building S3 client");
         let c = s3::client(&cfg.region, cfg.creds()).await?;
-        s3::put_object(&c, &cfg.bucket, &s3_key, data).await
+        rtrace("create: S3 client ready; put_object");
+        let r = s3::put_object(&c, &cfg.bucket, &s3_key, data).await;
+        rtrace(&format!("create: put_object returned ok={}", r.is_ok()));
+        r
     })?;
 
     let it = Item {
