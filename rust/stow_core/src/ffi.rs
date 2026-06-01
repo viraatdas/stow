@@ -254,6 +254,21 @@ pub unsafe extern "C" fn stow_fp_delete(item_id: *const c_char) -> *mut c_char {
     })
 }
 
+/// Mark an item dataless (true) or materialized (false). The agent calls this
+/// after a successful `evictItem` so the shared DB stays in sync with on-disk
+/// state — `stow status` reads the `dataless` flag to list offloaded folder files.
+///
+/// # Safety
+/// `item_id` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_fp_set_dataless(item_id: *const c_char, dataless: bool) -> *mut c_char {
+    json_call(|| {
+        let id = cstr(item_id, "item_id")?;
+        crate::provider::Store::open()?.set_dataless(id, dataless)?;
+        Ok(true)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

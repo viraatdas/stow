@@ -73,6 +73,12 @@ in the DB rather than reading the file on disk.)
 Touch the sentinel `…/Group Containers/3C4383262W.ai.exla.stow/sweep-now` to force
 an immediate sweep instead of waiting for the hourly timer.
 
+**`stow status`** lists offloaded files from *both* modes: a **Stow folder**
+section (folder files currently dataless — open one to download it back) and an
+**in-place** section (CLI offloads — `stow restore` to bring back). The DB's
+`dataless` flag is kept in sync by the agent (set after a successful `evictItem`,
+cleared on `fetchContents`), so the list stays accurate both ways.
+
 ### One-time setup (required, by Apple's design)
 
 macOS will not let an app enable its own File Provider extension (security: it

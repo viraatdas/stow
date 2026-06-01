@@ -102,6 +102,9 @@ final class Evictor {
                 if let err {
                     stowDiag("evictor: evict \(it.filename): \(err.localizedDescription)")
                 } else {
+                    // Keep the shared DB in sync so `stow status` lists it as
+                    // offloaded (fileproviderd won't call back to tell us).
+                    try? StowProvider.setDataless(id: it.itemID, true)
                     stowDiag("evictor: auto-offloaded \(it.filename) ✅")
                 }
             }

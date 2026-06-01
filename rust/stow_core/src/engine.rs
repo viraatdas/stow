@@ -64,12 +64,22 @@ pub struct StatusItem {
 }
 
 #[derive(Serialize)]
+pub struct FolderItem {
+    pub filename: String,
+    pub size: i64,
+}
+
+#[derive(Serialize)]
 pub struct StatusResult {
     pub bucket: String,
     pub region: String,
     pub count: usize,
     pub bytes_offloaded: i64,
     pub items: Vec<StatusItem>,
+    /// Offloaded files in the transparent Stow folder (dataless, only in S3).
+    pub folder_count: usize,
+    pub folder_bytes: i64,
+    pub folder_items: Vec<FolderItem>,
 }
 
 // ---- init --------------------------------------------------------------------
@@ -322,12 +332,23 @@ pub fn status() -> StowResult<StatusResult> {
             present_as_placeholder: present,
         });
     }
+    // Also report the transparent Stow folder's offloaded (dataless) files.
+    let folder = crate::provider::list_dataless().unwrap_or_default();
+    let folder_bytes: i64 = folder.iter().map(|i| i.size).sum();
+    let folder_items: Vec<FolderItem> = folder
+        .iter()
+        .map(|i| FolderItem { filename: i.filename.clone(), size: i.size })
+        .collect();
+
     Ok(StatusResult {
         bucket: cfg.bucket,
         region: cfg.region,
         count: items.len(),
         bytes_offloaded: total,
         items: out,
+        folder_count: folder_items.len(),
+        folder_bytes,
+        folder_items,
     })
 }
 

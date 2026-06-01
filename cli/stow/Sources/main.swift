@@ -124,15 +124,28 @@ case "restore":
 case "status":
     do {
         let r = try StowEngine.status()
-        let count = r["count"] as? Int ?? 0
-        let total = r["bytes_offloaded"] as? Int ?? 0
+        let cliCount = r["count"] as? Int ?? 0
+        let cliBytes = r["bytes_offloaded"] as? Int ?? 0
+        let folderCount = r["folder_count"] as? Int ?? 0
+        let folderBytes = r["folder_bytes"] as? Int ?? 0
         print("bucket: \(r["bucket"] as? String ?? "?") (\(r["region"] as? String ?? "?"))")
-        print("offloaded: \(count) file(s), \(humanBytes(total)) in the cloud")
+        print("offloaded: \(cliCount + folderCount) file(s), \(humanBytes(cliBytes + folderBytes)) in the cloud")
+
+        // Transparent Stow folder — files auto-offloaded to dataless (open one to
+        // download it back automatically).
+        if let f = r["folder_items"] as? [[String: Any]], !f.isEmpty {
+            print("\n  Stow folder (auto, downloads on open):")
+            for it in f {
+                print("    ● \(humanBytes(it["size"] as? Int ?? 0))\t\(it["filename"] as? String ?? "?")")
+            }
+        }
+
+        // Whole-account, in-place offloads (run `stow restore <path>` to bring back).
         if let items = r["items"] as? [[String: Any]], !items.isEmpty {
-            print("")
+            print("\n  In-place (CLI, `stow restore` to bring back):")
             for it in items {
                 let off = (it["present_as_placeholder"] as? Bool ?? false) ? "○" : "●"
-                print("  \(off) \(humanBytes(it["size"] as? Int ?? 0))\t\(it["path"] as? String ?? "?")")
+                print("    \(off) \(humanBytes(it["size"] as? Int ?? 0))\t\(it["path"] as? String ?? "?")")
             }
             print("\n  ○ = offloaded (placeholder)   ● = restored/local")
         }

@@ -197,6 +197,31 @@ impl Store {
             .map_err(|e| StowError::Io(e.to_string()))?;
         Ok(())
     }
+
+    /// All offloaded (dataless) files in the Stow folder, largest first.
+    pub fn dataless(&self) -> StowResult<Vec<Item>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless FROM fp_items WHERE dataless=1 AND is_folder=0 ORDER BY size DESC")
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        let rows = stmt
+            .query_map([], Self::row_to_item)
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| StowError::Io(e.to_string()))?);
+        }
+        Ok(out)
+    }
+}
+
+/// Offloaded files currently living only in S3 (Stow folder). Returns an empty
+/// list if the provider DB doesn't exist yet (folder never used).
+pub fn list_dataless() -> StowResult<Vec<Item>> {
+    if !db_path()?.exists() {
+        return Ok(Vec::new());
+    }
+    Store::open()?.dataless()
 }
 
 // ---- high-level operations (used by the FFI) --------------------------------

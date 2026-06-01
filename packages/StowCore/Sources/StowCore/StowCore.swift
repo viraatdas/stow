@@ -236,4 +236,10 @@ public enum StowProvider {
     public static func delete(id: String) throws {
         _ = try id.withCString { try object(stow_fp_delete($0)) }
     }
+
+    /// Sync the shared DB's dataless flag after an eviction/materialization, so
+    /// `stow status` can list offloaded folder files accurately.
+    public static func setDataless(id: String, _ dataless: Bool) throws {
+        _ = try id.withCString { try object(stow_fp_set_dataless($0, dataless)) }
+    }
 }
