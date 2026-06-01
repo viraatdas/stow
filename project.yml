@@ -41,7 +41,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.ai.exla.stow
+          - 3C4383262W.ai.exla.stow
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-write: true
     settings:
@@ -74,7 +74,7 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
-          NSExtensionFileProviderDocumentGroup: group.ai.exla.stow
+          NSExtensionFileProviderDocumentGroup: 3C4383262W.ai.exla.stow
           NSExtensionFileProviderSupportsEnumeration: true
     entitlements:
       path: apps/StowFileProvider/StowFileProvider.entitlements
@@ -82,7 +82,7 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.application-groups:
-          - group.ai.exla.stow
+          - 3C4383262W.ai.exla.stow
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.exla.stow.fileprovider

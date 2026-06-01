@@ -22,7 +22,7 @@ the config + SQLite indexes that all of them read/write:
 | Component | What it is | Role |
 |---|---|---|
 | `stow` | CLI (`/opt/homebrew/bin/stow`) | user-facing: `init`, `offload`, `restore`, `status`, `scan`, `auto`, `schedule`, `config` |
-| `StowAgent.app` | faceless agent (`LSUIElement`, no Dock icon) | registers the File Provider domain, runs the auto-evict sweep; always-on via LaunchAgent |
+| `StowAgent.app` | faceless agent (`LSUIElement`, no Dock icon) | registers the File Provider domain, runs the **hourly auto-evict sweep** for the Stow folder; always-on via LaunchAgent |
 | `StowFileProvider.appex` | `NSFileProviderReplicatedExtension` | the transparent folder: `createItem` (upload), `fetchContents` (download-on-open), `enumerator` |
 | `libstow_core` | Rust static lib → `StowCore.xcframework` | S3 I/O (`aws-sdk-s3`), SQLite, blake3 hashing/dedup; linked into all three via a C FFI |
 
@@ -55,6 +55,23 @@ A **Stow** entry appears in Finder's sidebar at
 - It can go **dataless** (0 bytes on disk) but still shows in Finder.
 - **Open it in any app** → `fetchContents` downloads it from S3 transparently,
   byte-identical. **No `stow restore` needed.**
+
+### Auto-eviction of the Stow folder (automatic offload)
+
+The agent runs an **hourly sweep** (`Evictor`) that offloads files in the Stow
+folder which are **≥10 MB** and **untouched ≥90 days** (the same defaults as the
+CLI; reads `policy` from the shared config). Eviction calls
+`NSFileProviderManager.evictItem`, which drops the local copy to dataless while
+the bytes stay in S3 — reading the file later re-downloads it transparently.
+
+"Untouched" is tracked by a `last_access` timestamp in the provider DB: set on
+`createItem`, **bumped on every `fetchContents`**, so a file you actually use
+keeps resetting its clock and is never offloaded. (The agent is sandboxed and
+can't `stat` the user-visible `~/Library/CloudStorage` path, so staleness lives
+in the DB rather than reading the file on disk.)
+
+Touch the sentinel `…/Group Containers/3C4383262W.ai.exla.stow/sweep-now` to force
+an immediate sweep instead of waiting for the hourly timer.
 
 ### One-time setup (required, by Apple's design)
 
@@ -168,6 +185,8 @@ bash scripts/sign-notarize.sh
 | File op fails `-2011` "Sync is not enabled" | Domain is `user-disabled` — enable the extension toggle. |
 | `stow init` hangs | AWS SDK probing EC2 metadata. Stow sets `AWS_EC2_METADATA_DISABLED`; ensure creds are in `~/.aws` or env. |
 | Extension can't reach S3 | The sandboxed extension can't read `~/.aws`; `stow init` captures creds into the shared App Group config for it. |
+| Extension fails every op with `Operation not permitted` / `unable to open database file` (but the agent works) | App Group container access denied. The App Group ID **must be team-prefixed** (`3C4383262W.ai.exla.stow`) so it matches the provisioning profile's `<TeamID>.*` wildcard — a bare `group.…` id is unauthorized for the *sandboxed* extension (the non-sandboxed paths get a grandfathered grant and mask the bug). |
+| Extension `SQLITE_CANTOPEN` on the shared DB | The provider DB must **not** use WAL: a File Provider extension's sandbox blocks WAL's mmap-backed `-shm`. Stow uses `journal_mode=TRUNCATE`. |
 
 ---
 
@@ -175,13 +194,11 @@ bash scripts/sign-notarize.sh
 
 **Working & verified:**
 - Transparent Stow folder: drop→upload, open→auto-download, byte-identical ✅
+- **Auto-eviction of the Stow folder**: hourly sweep evicts ≥10 MB / ≥90-day-
+  untouched files to dataless; verified end-to-end (drop → upload → auto-evict →
+  dataless → read → byte-identical re-download, with `last_access` reset on read) ✅
 - CLI whole-account auto-offload: scan / auto / schedule / restore ✅
 - Public Homebrew tap, notarized signing pipeline, app icon, `stow.viraat.dev` ✅
 
 **Open / future:**
-- **Auto-eviction of the Stow folder** is currently a stub — the transparent
-  download-on-open is fully live, but automatically pushing *in-folder* files to
-  dataless on a schedule (to reclaim space) is not yet wired (the
-  path→item-identifier eviction API needs finishing). The CLI's scheduled
-  `stow auto` handles automatic offload for files outside the folder.
 - App offloading (`.app` bundles) — not implemented.

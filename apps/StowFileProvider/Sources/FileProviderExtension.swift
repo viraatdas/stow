@@ -6,7 +6,7 @@ import os.log
 /// access to fileproviderd's privileged logs.
 func fpTrace(_ s: String) {
     let dir = FileManager.default
-        .containerURL(forSecurityApplicationGroupIdentifier: "group.ai.exla.stow")
+        .containerURL(forSecurityApplicationGroupIdentifier: "3C4383262W.ai.exla.stow")
     guard let dir else { return }
     let path = dir.appendingPathComponent("ext-trace.log").path
     let line = "[\(Date().timeIntervalSince1970)] \(s)\n"

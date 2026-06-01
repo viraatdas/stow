@@ -25,6 +25,8 @@ func stowDiag(_ s: String) {
 
 final class AgentDelegate: NSObject, NSApplicationDelegate {
     private let log = Logger(subsystem: "ai.exla.stow", category: "agent")
+    // Held strongly so its timer keeps firing for the agent's lifetime.
+    private let evictor = Evictor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Share state via the App Group container (sandboxed).
@@ -33,9 +35,10 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
         stowDiag("launched; core v\(StowCoreLib.version())")
         // Register the Stow domain so "Stow" appears in Finder's sidebar.
         StowDomain.register()
-        // M1 (next): bootstrap config from the App Group container, start the
-        // Unix-domain-socket IPC server for the `stow` CLI, start the eviction
-        // engine (free-space watcher + scheduled scan).
+        // Start the auto-offload sweep: large, unused, materialized files in the
+        // Stow folder are evicted to dataless on a schedule (content already in S3).
+        evictor.start()
+        stowDiag("evictor started")
     }
 }
 

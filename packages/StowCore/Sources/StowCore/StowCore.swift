@@ -11,7 +11,7 @@ public enum StowCoreLib {
         return String(cString: cstr)
     }
 
-    static let appGroup = "group.ai.exla.stow"
+    static let appGroup = "3C4383262W.ai.exla.stow"
 
     /// Point the Rust core at the shared App Group container so the sandboxed
     /// extension, the agent, and the CLI all read/write the same config + DBs.
@@ -128,6 +128,7 @@ public struct StowFPItem {
     public let hash: String?
     public let version: Int64
     public let modifiedAt: Int64
+    public let lastAccess: Int64
     public let dataless: Bool
 
     init?(_ d: [String: Any]) {
@@ -143,6 +144,7 @@ public struct StowFPItem {
         self.hash = d["hash"] as? String
         self.version = (d["version"] as? NSNumber)?.int64Value ?? 1
         self.modifiedAt = (d["modified_at"] as? NSNumber)?.int64Value ?? 0
+        self.lastAccess = (d["last_access"] as? NSNumber)?.int64Value ?? 0
         self.dataless = d["dataless"] as? Bool ?? false
     }
 }

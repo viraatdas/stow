@@ -31,6 +31,11 @@ pub struct Item {
     /// Monotonic version bumped on every content change (drives NSFileProvider).
     pub version: i64,
     pub modified_at: i64,
+    /// Last time the file was created, modified, or read (via `fetch`). This is
+    /// the "last touched" signal the auto-evictor uses for staleness — the
+    /// sandboxed agent can't stat the user-visible CloudStorage path, so the DB
+    /// carries the access time instead.
+    pub last_access: i64,
     /// True when the bytes are in S3 and not materialized locally.
     pub dataless: bool,
 }
@@ -73,8 +78,13 @@ impl Store {
     pub fn open() -> StowResult<Store> {
         let p = db_path()?;
         let conn = Connection::open(&p).map_err(|e| StowError::Io(e.to_string()))?;
+        // NOT WAL: a File Provider extension's sandbox forbids the mmap-backed
+        // `-shm` shared-memory file WAL requires, so WAL → SQLITE_CANTOPEN inside
+        // the extension. TRUNCATE uses a plain rollback journal (no shared
+        // memory); cross-process safe here given busy_timeout + our tiny write
+        // rate (a few inserts on createItem, reads on enumerate).
         conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
+            "PRAGMA journal_mode=TRUNCATE;
              PRAGMA busy_timeout=5000;
              CREATE TABLE IF NOT EXISTS fp_items (
                 item_id      TEXT PRIMARY KEY,
@@ -87,11 +97,15 @@ impl Store {
                 s3_key       TEXT,
                 version      INTEGER NOT NULL,
                 modified_at  INTEGER NOT NULL,
+                last_access  INTEGER NOT NULL DEFAULT 0,
                 dataless     INTEGER NOT NULL DEFAULT 1
              );
              CREATE INDEX IF NOT EXISTS idx_fp_parent ON fp_items(parent_id);",
         )
         .map_err(|e| StowError::Io(e.to_string()))?;
+        // Migrate older DBs that predate last_access (ignore "duplicate column").
+        let _ = conn.execute_batch(
+            "ALTER TABLE fp_items ADD COLUMN last_access INTEGER NOT NULL DEFAULT 0;");
         Ok(Store { conn })
     }
 
@@ -107,14 +121,15 @@ impl Store {
             s3_key: row.get(7)?,
             version: row.get(8)?,
             modified_at: row.get(9)?,
-            dataless: row.get::<_, i64>(10)? != 0,
+            last_access: row.get(10)?,
+            dataless: row.get::<_, i64>(11)? != 0,
         })
     }
 
     pub fn children(&self, parent_id: &str) -> StowResult<Vec<Item>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,dataless FROM fp_items WHERE parent_id=?1 ORDER BY filename")
+            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless FROM fp_items WHERE parent_id=?1 ORDER BY filename")
             .map_err(|e| StowError::Io(e.to_string()))?;
         let rows = stmt
             .query_map(params![parent_id], Self::row_to_item)
@@ -129,7 +144,7 @@ impl Store {
     pub fn get(&self, item_id: &str) -> StowResult<Option<Item>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,dataless FROM fp_items WHERE item_id=?1")
+            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless FROM fp_items WHERE item_id=?1")
             .map_err(|e| StowError::Io(e.to_string()))?;
         let mut rows = stmt
             .query(params![item_id])
@@ -143,17 +158,18 @@ impl Store {
     pub fn upsert(&self, it: &Item) -> StowResult<()> {
         self.conn
             .execute(
-                "INSERT INTO fp_items (item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,dataless)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                "INSERT INTO fp_items (item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
                  ON CONFLICT(item_id) DO UPDATE SET
                    parent_id=excluded.parent_id, filename=excluded.filename,
                    is_folder=excluded.is_folder, size=excluded.size,
                    content_type=excluded.content_type, hash=excluded.hash,
                    s3_key=excluded.s3_key, version=excluded.version,
-                   modified_at=excluded.modified_at, dataless=excluded.dataless",
+                   modified_at=excluded.modified_at, last_access=excluded.last_access,
+                   dataless=excluded.dataless",
                 params![it.item_id, it.parent_id, it.filename, it.is_folder as i64,
                         it.size, it.content_type, it.hash, it.s3_key, it.version,
-                        it.modified_at, it.dataless as i64],
+                        it.modified_at, it.last_access, it.dataless as i64],
             )
             .map_err(|e| StowError::Io(e.to_string()))?;
         Ok(())
@@ -169,6 +185,15 @@ impl Store {
     pub fn set_dataless(&self, item_id: &str, dataless: bool) -> StowResult<()> {
         self.conn
             .execute("UPDATE fp_items SET dataless=?2 WHERE item_id=?1", params![item_id, dataless as i64])
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Record that an item was just read — resets the "untouched" clock the
+    /// auto-evictor uses, so actively-used files are never offloaded.
+    pub fn touch_access(&self, item_id: &str, ts: i64) -> StowResult<()> {
+        self.conn
+            .execute("UPDATE fp_items SET last_access=?2 WHERE item_id=?1", params![item_id, ts])
             .map_err(|e| StowError::Io(e.to_string()))?;
         Ok(())
     }
@@ -199,7 +224,8 @@ pub fn create(parent_id: &str, filename: &str, is_folder: bool, temp_path: &str)
         let it = Item {
             item_id: id, parent_id: parent_id.to_string(), filename: filename.to_string(),
             is_folder: true, size: 0, content_type: "public.folder".into(),
-            hash: None, s3_key: None, version: 1, modified_at: now(), dataless: false,
+            hash: None, s3_key: None, version: 1, modified_at: now(),
+            last_access: now(), dataless: false,
         };
         store.upsert(&it)?;
         return Ok(it);
@@ -229,7 +255,7 @@ pub fn create(parent_id: &str, filename: &str, is_folder: bool, temp_path: &str)
         item_id: id, parent_id: parent_id.to_string(), filename: filename.to_string(),
         is_folder: false, size, content_type: guess_type(filename),
         hash: Some(hash), s3_key: Some(s3_key), version: 1, modified_at: now(),
-        dataless: false, // freshly created => materialized
+        last_access: now(), dataless: false, // freshly created => materialized
     };
     store.upsert(&it)?;
     Ok(it)
@@ -257,6 +283,7 @@ pub fn update_contents(item_id: &str, temp_path: &str) -> StowResult<Item> {
     it.s3_key = Some(s3_key);
     it.version += 1;
     it.modified_at = now();
+    it.last_access = now();
     it.dataless = false;
     store.upsert(&it)?;
     Ok(it)
@@ -288,6 +315,9 @@ pub fn fetch(item_id: &str, out_path: &str) -> StowResult<Item> {
     }
     std::fs::write(out_path, &data).map_err(|e| StowError::Io(e.to_string()))?;
     store.set_dataless(item_id, false)?;
+    // Reading is an access event — reset the staleness clock so files in active
+    // use are never auto-evicted.
+    store.touch_access(item_id, now())?;
     Ok(it)
 }
 
