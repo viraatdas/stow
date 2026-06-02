@@ -40,6 +40,7 @@ func printUsage() {
       config set-age <days> Days untouched before offloading (default 90)
       config add-root <dir>     Add a folder to auto-scan
       config remove-root <dir>  Remove a folder from auto-scan
+      config include-hidden [on|off]  Scan hidden dirs like ~/.cache (default off)
 
     OPTIONS:
       --version            Show version
@@ -238,6 +239,16 @@ case "config":
                 $0["roots"] = roots
             }
             print("✓ removed scan folder: \(dir)")
+        case "include-hidden":
+            let arg = (Array(rest.dropFirst()).first ?? "on").lowercased()
+            let on = !(arg == "off" || arg == "false" || arg == "0" || arg == "no")
+            try Policy.update { $0["include_hidden"] = on }
+            print("✓ scan hidden dirs (e.g. ~/.cache): \(on ? "ON" : "off")")
+            if on {
+                print("  note: offloads in hidden dirs are in-place stubs — they do NOT")
+                print("  auto-download on open, so `stow restore <path>` before reusing.")
+                print("  Credential dirs (.ssh/.aws/…) and .git/.Trash stay protected.")
+            }
         default:
             let cfg = try StowEngine.getConfig()
             print("bucket: \(cfg["bucket"] as? String ?? "?") (\(cfg["region"] as? String ?? "?"))")
@@ -247,6 +258,7 @@ case "config":
                 print("  min size:  \(minMB) MB")
                 print("  min age:   \(p["min_age_days"] as? Int ?? 0) days untouched")
                 print("  folders:   \((p["roots"] as? [String])?.joined(separator: ", ") ?? "?")")
+                print("  hidden:    \((p["include_hidden"] as? Bool ?? false) ? "scanned (~/.cache etc.)" : "skipped (default)")")
             }
             print("\nschedule:  \(Scheduler.isInstalled() ? "ON (daily)" : "off — enable with `stow schedule`")")
         }

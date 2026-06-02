@@ -54,6 +54,12 @@ pub struct Policy {
     /// Path substrings that exclude a file from consideration.
     #[serde(default = "default_excludes")]
     pub excludes: Vec<String>,
+    /// Scan inside hidden dirs (e.g. `~/.cache`). Off by default: in-place offload
+    /// there doesn't auto-restore on open (only the Stow folder does), so stubbing
+    /// a cache file an app reads directly can break it. Credential dirs (`.ssh`,
+    /// `.aws`, …) and `.git`/`.Trash` stay excluded even when this is on.
+    #[serde(default = "default_include_hidden")]
+    pub include_hidden: bool,
 }
 
 impl Default for Policy {
@@ -63,8 +69,13 @@ impl Default for Policy {
             min_age_days: default_min_age_days(),
             roots: default_roots(),
             excludes: default_excludes(),
+            include_hidden: default_include_hidden(),
         }
     }
+}
+
+fn default_include_hidden() -> bool {
+    false
 }
 
 fn default_min_size() -> u64 {

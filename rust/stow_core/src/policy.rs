@@ -47,12 +47,17 @@ fn name(entry: &DirEntry) -> &str {
 }
 
 /// Prune directory subtrees we never descend into (hidden, bundles, excluded).
-fn should_descend(entry: &DirEntry, excludes: &[String]) -> bool {
+/// With `include_hidden`, dotted dirs like `~/.cache` ARE scanned — except the
+/// sensitive/credential ones, which are never touched.
+fn should_descend(entry: &DirEntry, excludes: &[String], include_hidden: bool) -> bool {
     if !entry.file_type().is_dir() {
         return true;
     }
     let n = name(entry);
-    if n.starts_with('.') {
+    if is_sensitive_dir(n) {
+        return false; // never, even with include_hidden
+    }
+    if n.starts_with('.') && !include_hidden {
         return false;
     }
     if is_package_dir(n) {
@@ -60,6 +65,23 @@ fn should_descend(entry: &DirEntry, excludes: &[String]) -> bool {
     }
     let path = entry.path().to_string_lossy();
     !excludes.iter().any(|e| path.contains(e.as_str()))
+}
+
+/// Dirs we refuse to offload from even when `include_hidden` is on: credentials,
+/// keys, and VCS/trash where stubbing a file would be dangerous or confusing.
+fn is_sensitive_dir(n: &str) -> bool {
+    const SENSITIVE: &[&str] = &[
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".password-store",
+        ".kube",
+        ".docker",
+        ".git",
+        ".Trash",
+        ".Trashes",
+    ];
+    SENSITIVE.contains(&n)
 }
 
 /// True for directory names that are really opaque packages, not folders.
@@ -173,6 +195,7 @@ pub fn scan(cfg: &Config) -> StowResult<Vec<Candidate>> {
     let pol = &cfg.policy;
     let min_size = pol.min_size_bytes;
     let max_age_secs = pol.min_age_days as i64 * 86_400;
+    let include_hidden = pol.include_hidden;
     let now = now_secs();
 
     // Phase 1 (cheap): walk + filter by size/exclusions/placeholder.
@@ -191,14 +214,14 @@ pub fn scan(cfg: &Config) -> StowResult<Vec<Candidate>> {
         let walker = WalkDir::new(root_path)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| should_descend(e, &pol.excludes));
+            .filter_entry(|e| should_descend(e, &pol.excludes, include_hidden));
 
         for entry in walker.flatten() {
             if !entry.file_type().is_file() {
                 continue;
             }
             let path = entry.path();
-            if path_has_hidden_component(path) {
+            if !include_hidden && path_has_hidden_component(path) {
                 continue;
             }
             let path_str = path.to_string_lossy();
