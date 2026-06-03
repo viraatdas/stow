@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>stow — offload your files on mac</title>
-<meta name="description" content="Frees Mac disk space by offloading files over 10MB and untouched for 90 days (configurable) to your own S3 — and the instant any app opens one, it downloads back automatically. Apple File Provider, Apple Silicon." />
+<meta name="description" content="Frees Mac disk space: offloads files over 10MB untouched for 90 days (configurable) to your own S3 with auto-download on open, and auto-cleans regenerable tool/package caches weekly. Apple File Provider, Apple Silicon." />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="icon" type="image/png" href="/favicon.png" />
 <link rel="apple-touch-icon" href="/favicon.png" />
@@ -110,6 +110,9 @@
 
     <p class="lead" style="color:var(--muted);font-size:0.9rem;">Built on Apple&rsquo;s File Provider framework &mdash; the same mechanism iCloud Drive and Dropbox use. Content is hashed, de-duplicated, and verified byte-for-byte. Everything stays in <em>your</em> AWS account &mdash; Stow never sees your data. Apple Silicon, macOS 14+.</p>
 
+    <h2>Also: auto-cleans regenerable caches</h2>
+    <p class="lead">Stow also reclaims space from the junk that quietly piles up &mdash; the package-manager and tool caches in <code>~/.cache</code>, <code>~/.npm</code>, <code>~/.bun</code>, <code>~/.gradle</code>, Hugging Face models, and more. Once a week it deletes the ones that haven&rsquo;t been touched in a while. These aren&rsquo;t offloaded &mdash; they&rsquo;re <strong>safe to delete outright because each tool re-downloads or rebuilds them on demand.</strong> (Source, credentials, and installed toolchains are never touched.) On one machine this recovered <strong>tens of gigabytes</strong>.</p>
+
     <h2>Install</h2>
     <pre><code class="cmd">brew tap viraatdas/tap
 brew install stow</code></pre>
@@ -127,6 +130,10 @@ stow offload ~/Movies/big-render.mov
 <span class="c"># tune what auto-offloads (defaults: ≥10 MB, untouched ≥90 days)</span>
 stow config set-size 20
 stow config set-age 30
+
+<span class="c"># reclaim regenerable caches (npm/bun/uv/gradle/HF/…); --apply to delete</span>
+stow clean
+stow clean --apply
 
 stow status                    <span class="c"># what&rsquo;s offloaded, space saved</span></code></pre>
 

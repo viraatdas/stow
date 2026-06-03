@@ -105,6 +105,12 @@ public enum StowEngine {
         try take(stow_engine_auto())
     }
 
+    /// `stow clean` — reclaim regenerable tool/package caches idle ≥ minIdleDays.
+    /// `apply: false` is a dry run. Returns a CleanReport object.
+    public static func cleanCaches(minIdleDays: UInt64, apply: Bool) throws -> [String: Any] {
+        try take(stow_engine_clean_caches(minIdleDays, apply))
+    }
+
     /// Full persisted config (bucket/region/policy).
     public static func getConfig() throws -> [String: Any] {
         try take(stow_engine_get_config())

@@ -1,13 +1,15 @@
 import Foundation
 import CStowCore
 
-/// Manages the launchd agent that runs `stow auto` on a daily schedule.
-/// This is what makes offloading "automatic": a per-user LaunchAgent that wakes
-/// once a day, runs the policy, and offloads matching files.
+/// Manages the launchd agents that make stow "automatic": a daily `stow auto`
+/// (offload matching files) and a weekly `stow clean --apply` (reclaim
+/// regenerable tool/package caches). Both run the CLI, because cache cleanup
+/// touches `~/.cache` etc. which the sandboxed StowAgent can't reach.
 enum Scheduler {
     static let label = "ai.exla.stow.auto"
+    static let cleanLabel = "ai.exla.stow.clean"
 
-    private static var plistURL: URL {
+    private static func plistURL(_ label: String) -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
@@ -20,19 +22,39 @@ enum Scheduler {
     }
 
     static func isInstalled() -> Bool {
-        FileManager.default.fileExists(atPath: plistURL.path)
+        FileManager.default.fileExists(atPath: plistURL(label).path)
     }
 
+    static func isCleanInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: plistURL(cleanLabel).path)
+    }
+
+    /// Daily offload job (`stow auto`).
     static func install(hour: Int, minute: Int) throws {
+        try installJob(label: label, args: [stowPath, "auto"],
+                       calendar: ["Hour": hour, "Minute": minute], logName: "stow-auto.log")
+    }
+
+    /// Weekly cache-clean job (`stow clean --apply`). Runs Sundays so it doesn't
+    /// thrash caches that just crossed the idle threshold.
+    static func installClean(weekday: Int = 0, hour: Int = 12, minute: Int = 30) throws {
+        try installJob(label: cleanLabel, args: [stowPath, "clean", "--apply"],
+                       calendar: ["Weekday": weekday, "Hour": hour, "Minute": minute],
+                       logName: "stow-clean.log")
+    }
+
+    private static func installJob(label: String, args: [String],
+                                   calendar: [String: Int], logName: String) throws {
         let logDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs")
         try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
-        let logPath = logDir.appendingPathComponent("stow-auto.log").path
+        let logPath = logDir.appendingPathComponent(logName).path
 
+        let url = plistURL(label)
         let plist: [String: Any] = [
             "Label": label,
-            "ProgramArguments": [stowPath, "auto"],
-            "StartCalendarInterval": ["Hour": hour, "Minute": minute],
+            "ProgramArguments": args,
+            "StartCalendarInterval": calendar,
             "RunAtLoad": false,
             "StandardOutPath": logPath,
             "StandardErrorPath": logPath,
@@ -40,24 +62,27 @@ enum Scheduler {
         let data = try PropertyListSerialization.data(
             fromPropertyList: plist, format: .xml, options: 0)
         try FileManager.default.createDirectory(
-            at: plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: plistURL)
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url)
 
         // Reload: bootout (ignore if not loaded) then bootstrap into the GUI domain.
         let uid = getuid()
         _ = run("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
-        let rc = run("/bin/launchctl", ["bootstrap", "gui/\(uid)", plistURL.path])
+        let rc = run("/bin/launchctl", ["bootstrap", "gui/\(uid)", url.path])
         if rc != 0 {
             // Fall back to legacy load for older macOS.
-            _ = run("/bin/launchctl", ["load", "-w", plistURL.path])
+            _ = run("/bin/launchctl", ["load", "-w", url.path])
         }
     }
 
-    static func uninstall() throws {
+    static func uninstall() throws { try uninstallJob(label) }
+    static func uninstallClean() throws { try uninstallJob(cleanLabel) }
+
+    private static func uninstallJob(_ label: String) throws {
         let uid = getuid()
         _ = run("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
-        _ = run("/bin/launchctl", ["unload", plistURL.path])
-        try? FileManager.default.removeItem(at: plistURL)
+        _ = run("/bin/launchctl", ["unload", plistURL(label).path])
+        try? FileManager.default.removeItem(at: plistURL(label))
     }
 
     @discardableResult

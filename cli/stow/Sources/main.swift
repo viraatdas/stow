@@ -32,6 +32,7 @@ func printUsage() {
 
       scan                 Dry run: list files auto-offload would pick (no changes)
       auto                 Offload everything matching the policy now
+      clean [--days N] [--apply]  Reclaim regenerable caches (npm/uv/HF/gradle/…)
       schedule [HH:MM]     Run `auto` automatically every day (default 12:00)
       unschedule           Stop the daily automatic run
 
@@ -190,6 +191,42 @@ case "auto":
         if n > 0 { print("\nRestore any of them with: stow restore <path>") }
     } catch { fail(error) }
 
+case "clean":
+    // Reclaim regenerable tool/package caches. Dry run unless --apply/-y.
+    // `--days N` sets the idle threshold (default 30); `--all` ignores age.
+    do {
+        let apply = rest.contains("--apply") || rest.contains("-y")
+        var minIdle: UInt64 = 30
+        if rest.contains("--all") { minIdle = 0 }
+        if let i = rest.firstIndex(of: "--days"), i + 1 < rest.count, let d = UInt64(rest[i + 1]) {
+            minIdle = d
+        }
+        let r = try StowEngine.cleanCaches(minIdleDays: minIdle, apply: apply)
+        let entries = (r["entries"] as? [[String: Any]]) ?? []
+        let reclaimable = r["reclaimable_bytes"] as? Int ?? 0
+        let freed = r["freed_bytes"] as? Int ?? 0
+        let ageNote = minIdle == 0 ? "all ages" : "idle ≥ \(minIdle) days"
+        if entries.isEmpty {
+            print("No regenerable caches \(ageNote) found. Nothing to clean.")
+        } else if apply {
+            print("✓ cleaned \(entries.filter { ($0["removed"] as? Bool ?? false) }.count) cache(s), freed \(humanBytes(freed))\n")
+            for e in entries {
+                let mark = (e["removed"] as? Bool ?? false) ? "✓" : "·"
+                print("  \(mark) \(humanBytes(e["size_bytes"] as? Int ?? 0))\t\(e["name"] as? String ?? "?")")
+            }
+            print("\nThese regenerate on demand (re-downloaded/rebuilt by their tools).")
+        } else {
+            print("Regenerable caches \(ageNote) — \(humanBytes(reclaimable)) reclaimable:\n")
+            for e in entries {
+                let d = e["idle_days"] as? Int ?? 0
+                print("  \(humanBytes(e["size_bytes"] as? Int ?? 0))\t\(d)d idle\t\(e["name"] as? String ?? "?")")
+                print("           \(e["path"] as? String ?? "?")  (\(e["regenerates"] as? String ?? "regenerates"))")
+            }
+            print("\nThis is a dry run. Run `stow clean --apply` to delete them")
+            print("(safe — each is re-fetched/rebuilt by its tool on next use).")
+        }
+    } catch { fail(error) }
+
 case "schedule":
     // Optional HH:MM (default 12:00)
     var hour = 12, minute = 0
@@ -199,15 +236,18 @@ case "schedule":
     }
     do {
         try Scheduler.install(hour: hour, minute: minute)
+        try Scheduler.installClean()
         print(String(format: "✓ Stow will auto-offload daily at %02d:%02d.", hour, minute))
-        print("  It runs `stow auto` (policy: see `stow config`). Stop with `stow unschedule`.")
-        print("  Tip: run `stow scan` first to preview what it'll pick.")
+        print("  It runs `stow auto` (policy: see `stow config`).")
+        print("✓ Stow will auto-clean regenerable caches weekly (Sun 12:30).")
+        print("  It runs `stow clean --apply`. Stop both with `stow unschedule`.")
     } catch { fail(error) }
 
 case "unschedule":
     do {
         try Scheduler.uninstall()
-        print("✓ Automatic offloading disabled.")
+        try Scheduler.uninstallClean()
+        print("✓ Automatic offloading and cache-cleanup disabled.")
     } catch { fail(error) }
 
 case "config":
@@ -260,7 +300,8 @@ case "config":
                 print("  folders:   \((p["roots"] as? [String])?.joined(separator: ", ") ?? "?")")
                 print("  hidden:    \((p["include_hidden"] as? Bool ?? false) ? "scanned (~/.cache etc.)" : "skipped (default)")")
             }
-            print("\nschedule:  \(Scheduler.isInstalled() ? "ON (daily)" : "off — enable with `stow schedule`")")
+            print("\noffload schedule:  \(Scheduler.isInstalled() ? "ON (daily)" : "off — enable with `stow schedule`")")
+            print("cache cleanup:     \(Scheduler.isCleanInstalled() ? "ON (weekly)" : "off — enable with `stow schedule`")")
         }
     } catch { fail(error) }
 

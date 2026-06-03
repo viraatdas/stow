@@ -144,6 +144,14 @@ pub extern "C" fn stow_engine_auto() -> *mut c_char {
     json_call(engine::auto_offload)
 }
 
+/// `stow clean` — reclaim regenerable tool/package caches idle >= min_idle_days.
+/// When `apply` is false it's a dry run (lists what it would delete). Returns
+/// CleanReport JSON.
+#[no_mangle]
+pub extern "C" fn stow_engine_clean_caches(min_idle_days: u64, apply: bool) -> *mut c_char {
+    json_call(|| crate::cache::clean(min_idle_days, apply))
+}
+
 /// Return the full persisted config (bucket/region/policy) as JSON.
 #[no_mangle]
 pub extern "C" fn stow_engine_get_config() -> *mut c_char {

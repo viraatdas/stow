@@ -140,6 +140,31 @@ back to `max(atime, mtime)` when Spotlight has no value.
 
 ---
 
+## Mode 3 — Auto-clean regenerable caches (`stow clean`)
+
+Package-manager and tool caches (`~/.cache`, `~/.npm`, `~/.bun`, `~/.gradle`,
+`~/.cargo/registry`, Hugging Face models, …) pile up fast. These should **not**
+be offloaded — stubbing a cache file makes the tool read a placeholder instead of
+getting a clean cache *miss*, so it breaks instead of re-fetching. Instead Stow
+**deletes** them: every entry is something the tool re-downloads or rebuilds on
+demand.
+
+```sh
+stow clean                 # dry run: list regenerable caches idle ≥ 30 days
+stow clean --days 14       # use a 14-day idle threshold
+stow clean --all           # ignore age — every known cache
+stow clean --apply         # actually delete them
+```
+
+It only touches a **curated allow-list** of known caches (`rust/stow_core/src/cache.rs`).
+It never touches source, credentials (`.ssh`/`.aws`/…), installed toolchains
+(`.rustup`/`.ghcup`, `.cargo/bin`), or config.
+
+**Automatic:** `stow schedule` installs a weekly LaunchAgent
+(`ai.exla.stow.clean`, Sundays 12:30) that runs `stow clean --apply` for caches
+idle ≥ 30 days. The clean job runs the **CLI** (not the sandboxed agent), because
+the agent's sandbox can't reach `~/.cache` etc.
+
 ## Install
 
 ```sh

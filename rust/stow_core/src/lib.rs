@@ -10,6 +10,7 @@
 //! The public surface is everything re-exported from [`ffi`]. cbindgen reads
 //! this crate to generate `stow_core.h`.
 
+mod cache;
 mod config;
 mod engine;
 mod error;
