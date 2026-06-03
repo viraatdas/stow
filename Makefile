@@ -39,9 +39,21 @@ agent:
 	xcodebuild -project $(PROJECT) -scheme StowAgent -configuration $(CONFIG) \
 		-destination '$(DEST)' -derivedDataPath $(DERIVED) build $(SIGN)
 
+# Developer ID identity used to give the CLI a STABLE code signature. Without
+# this the CLI is ad-hoc signed, and macOS TCC can't persist a permission grant
+# to it ("failed to match existing code requirement") — so it re-prompts for
+# Downloads/Documents/Desktop access on every run. A Developer ID signature lets
+# the grant stick across rebuilds. Falls back to ad-hoc if the cert isn't present.
+DEVID ?= Developer ID Application: Viraat Das (3C4383262W)
+CLI_IDENT ?= ai.exla.stow.cli
+
 cli:
 	xcodebuild -project $(PROJECT) -scheme stow -configuration $(CONFIG) \
 		-destination '$(DEST)' -derivedDataPath $(DERIVED) build $(SIGN)
+	@codesign --force --options runtime --identifier "$(CLI_IDENT)" \
+		--sign "$(DEVID)" "$(PRODUCTS)/stow" 2>/dev/null \
+		&& echo "  signed CLI with Developer ID ($(CLI_IDENT))" \
+		|| echo "  warn: Developer ID cert not found — CLI left ad-hoc; macOS may re-prompt for folder access"
 
 ## Install the agent app + stow CLI locally
 install: build
