@@ -1,20 +1,25 @@
 # Homebrew formula for Stow — build-from-source.
 #
-# v0.2.0 ships the working CLI offload engine: `stow init` auto-provisions an S3
-# bucket in your own AWS account, `stow offload <file>` uploads + frees disk,
-# `stow restore <file>` brings it back byte-identical, `stow status` lists state.
+# v0.4.0: CLI offload engine (`init` / `offload` / `restore` / `scan` / `auto` /
+# `schedule`), `stow status` across both offload modes, and `stow clean` (reclaim
+# regenerable tool/package caches, weekly via `stow schedule`).
 #
 # Build-from-source works because Homebrew's build allows network, so cargo
 # (crates.io) resolves normally. The CLI is dependency-free Swift + a static Rust
 # core, so no provisioning profile is needed.
 #
-# The transparent Finder-folder (File Provider) layer is a separate, in-progress
-# component and is intentionally NOT built/installed here yet.
+# The CLI is signed (ad-hoc) WITH the App Group entitlement: on macOS 15+ a
+# process that opens a shared group container without that entitlement triggers
+# the session-only "access data from other apps" TCC prompt on every run. The
+# entitlement makes the access silent; no signing certificate is required.
+#
+# The transparent Finder-folder (File Provider) layer needs Developer-ID signed
+# components and is intentionally NOT built/installed here yet.
 class Stow < Formula
   desc "Offload unused files on macOS to your own S3, restore on demand"
   homepage "https://stow.viraat.dev"
-  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.3.0.tar.gz"
-  sha256 "7957f166aa2824cc2c37e77dadf4ac5332bbab82b57b7cb97f10855af72be426"
+  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.4.0.tar.gz"
+  sha256 "PLACEHOLDER"
   license "MIT"
   head "https://github.com/viraatdas/stow.git", branch: "main"
 
@@ -36,6 +41,12 @@ class Stow < Formula
            "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO",
            "CODE_SIGN_IDENTITY=", "CODE_SIGN_STYLE=Manual"
 
+    # Re-sign with a stable identifier + the App Group entitlement (see header).
+    system "codesign", "--force", "--options", "runtime",
+           "--identifier", "ai.exla.stow.cli",
+           "--entitlements", "cli/stow/stow.entitlements",
+           "--sign", "-", "build/Build/Products/Release/stow"
+
     bin.install "build/Build/Products/Release/stow"
   end
 
@@ -44,8 +55,11 @@ class Stow < Formula
       Stow stores offloaded files in an S3 bucket in YOUR AWS account, using your
       existing AWS credentials (~/.aws or environment). Get started:
         stow init             # auto-provision the bucket
-        stow offload <file>   # upload + free disk space
+        stow scan             # dry run: what the policy would offload
+        stow schedule         # daily auto-offload + weekly cache cleanup
+        stow offload <file>   # upload + free disk space now
         stow restore <file>   # bring it back
+        stow clean            # list regenerable caches (--apply to delete)
         stow status           # what's offloaded
     EOS
   end

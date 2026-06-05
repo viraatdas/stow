@@ -15,10 +15,18 @@ enum Scheduler {
     }
 
     /// Absolute path to this running `stow` binary, so the agent invokes the
-    /// same one the user installed.
+    /// same one the user installed. Homebrew installs into a *versioned* Cellar
+    /// path (`…/Cellar/stow/0.4.0/bin/stow`) that `brew upgrade` + cleanup
+    /// deletes — a LaunchAgent pinned to it silently breaks on upgrade. Prefer
+    /// the stable `bin/stow` symlink when this binary lives in a Cellar.
     private static var stowPath: String {
-        if let p = Bundle.main.executablePath { return p }
-        return CommandLine.arguments.first ?? "/opt/homebrew/bin/stow"
+        let raw = Bundle.main.executablePath
+            ?? CommandLine.arguments.first ?? "/opt/homebrew/bin/stow"
+        if let range = raw.range(of: "/Cellar/stow/") {
+            let stable = String(raw[..<range.lowerBound]) + "/bin/stow"
+            if FileManager.default.isExecutableFile(atPath: stable) { return stable }
+        }
+        return raw
     }
 
     static func isInstalled() -> Bool {
