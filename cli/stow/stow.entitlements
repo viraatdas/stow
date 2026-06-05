@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The CLI is NOT sandboxed (it must walk the whole home dir), but it must
+	     still declare the App Group: on macOS 15+ a process that opens a group
+	     container WITHOUT this entitlement triggers the session-only
+	     "access data from other apps" TCC prompt (kTCCServiceSystemPolicyAppData)
+	     on every run. Declaring the group makes the access entitled and silent. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>3C4383262W.ai.exla.stow</string>
+	</array>
+</dict>
+</plist>

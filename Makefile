@@ -44,15 +44,20 @@ agent:
 # to it ("failed to match existing code requirement") — so it re-prompts for
 # Downloads/Documents/Desktop access on every run. A Developer ID signature lets
 # the grant stick across rebuilds. Falls back to ad-hoc if the cert isn't present.
+# The entitlements file declares the App Group: without it, every CLI run that
+# opens the shared group container fires macOS 15's session-only "access data
+# from other apps" prompt (kTCCServiceSystemPolicyAppData).
 DEVID ?= Developer ID Application: Viraat Das (3C4383262W)
 CLI_IDENT ?= ai.exla.stow.cli
+CLI_ENTITLEMENTS := cli/stow/stow.entitlements
 
 cli:
 	xcodebuild -project $(PROJECT) -scheme stow -configuration $(CONFIG) \
 		-destination '$(DEST)' -derivedDataPath $(DERIVED) build $(SIGN)
 	@codesign --force --options runtime --identifier "$(CLI_IDENT)" \
+		--entitlements "$(CLI_ENTITLEMENTS)" \
 		--sign "$(DEVID)" "$(PRODUCTS)/stow" 2>/dev/null \
-		&& echo "  signed CLI with Developer ID ($(CLI_IDENT))" \
+		&& echo "  signed CLI with Developer ID ($(CLI_IDENT)) + app-group entitlement" \
 		|| echo "  warn: Developer ID cert not found — CLI left ad-hoc; macOS may re-prompt for folder access"
 
 ## Install the agent app + stow CLI locally
