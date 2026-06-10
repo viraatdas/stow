@@ -12,9 +12,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let cloudItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var timer: Timer?
 
-    /// Numbers shown both in the bar and the dropdown.
+    /// Numbers shown in the dropdown. The bar itself stays a bare icon — no
+    /// byte count cluttering the menu bar; click to see the figures.
     private struct Summary {
-        var barTitle: String      // compact, sits in the menu bar
         var savedLine: String     // "Saved 3.8 GB on disk · 75 files offloaded"
         var cloudLine: String     // "75 files, 3.8 GB in S3 · bucket (region)"
     }
@@ -67,7 +67,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             let summary = StatusBarController.computeSummary()
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.item.button?.title = summary.barTitle
                 self.savedItem.title = summary.savedLine
                 self.cloudItem.title = summary.cloudLine
             }
@@ -129,8 +128,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// local disk, so it's excluded here (but still counts toward the S3 total).
     private static func computeSummary() -> Summary {
         guard let r = try? StowEngine.status() else {
-            return Summary(barTitle: "",
-                           savedLine: "Stow — not initialized",
+            return Summary(savedLine: "Stow — not initialized",
                            cloudLine: "Run `stow init` to set up your bucket")
         }
         let cliCount = r["count"] as? Int ?? 0
@@ -148,10 +146,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let bucket = r["bucket"] as? String ?? "?"
         let region = r["region"] as? String ?? "?"
 
-        // Empty bar title when nothing is saved keeps it to a quiet icon.
-        let barTitle = savedBytes > 0 ? humanBytes(savedBytes) : ""
         return Summary(
-            barTitle: barTitle,
             savedLine: "Saved \(humanBytes(savedBytes)) on disk · \(savedCount) file\(savedCount == 1 ? "" : "s") offloaded",
             cloudLine: "\(cloudCount) file\(cloudCount == 1 ? "" : "s"), \(humanBytes(cloudBytes)) in S3 · \(bucket) (\(region))")
     }
