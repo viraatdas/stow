@@ -157,6 +157,22 @@ impl Index {
         }
     }
 
+    /// The existing share for a source path, if any — `stow share` is
+    /// idempotent: re-sharing the same file returns the SAME URL (refreshing
+    /// its content) instead of minting a new link.
+    pub fn get_share_by_source(&self, source: &str) -> StowResult<Option<ShareRow>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT token, source, s3_key, url, size, is_folder, created_at FROM shares WHERE source=?1 ORDER BY created_at DESC LIMIT 1")
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        let mut rows = stmt.query(params![source]).map_err(|e| StowError::Io(e.to_string()))?;
+        if let Some(row) = rows.next().map_err(|e| StowError::Io(e.to_string()))? {
+            Ok(Some(row_to_share(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn list_shares(&self) -> StowResult<Vec<ShareRow>> {
         let mut stmt = self
             .conn

@@ -555,6 +555,9 @@ pub struct ShareResult {
     pub size: i64,
     pub is_folder: bool,
     pub file_count: usize,
+    /// True when this path already had a link — the same URL was returned
+    /// (with its content refreshed) instead of minting a new one.
+    pub reused: bool,
 }
 
 #[derive(Serialize)]
@@ -663,8 +666,18 @@ pub fn share(path: &str) -> StowResult<ShareResult> {
     let p = Path::new(path);
     let md = std::fs::symlink_metadata(p)
         .map_err(|e| StowError::Io(format!("{path}: {e}")))?;
-    let token = rand_token()?;
     let idx = Index::open()?;
+    // Idempotent: a path keeps its URL for life. Re-sharing refreshes the
+    // published content under the SAME link instead of minting a new token —
+    // so users can re-run `stow share` any time just to read the URL back.
+    // (`stow unshare` deletes the row, so a revoked link stays dead and a
+    // later share gets a fresh token.)
+    let existing = idx.get_share_by_source(path)?;
+    let reused = existing.is_some();
+    let token = match &existing {
+        Some(row) => row.token.clone(),
+        None => rand_token()?,
+    };
     let basename = p
         .file_name()
         .and_then(|s| s.to_str())
@@ -732,10 +745,11 @@ pub fn share(path: &str) -> StowResult<ShareResult> {
         url: url.clone(),
         size,
         is_folder,
-        created_at: now(),
+        // Keep the original publish date when refreshing an existing link.
+        created_at: existing.as_ref().map(|r| r.created_at).unwrap_or_else(now),
     })?;
 
-    Ok(ShareResult { url, token, path: path.to_string(), size, is_folder, file_count })
+    Ok(ShareResult { url, token, path: path.to_string(), size, is_folder, file_count, reused })
 }
 
 /// Revoke a share: delete the public object and forget the link.

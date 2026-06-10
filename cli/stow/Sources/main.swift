@@ -167,14 +167,18 @@ case "share":
         let isFolder = r["is_folder"] as? Bool ?? false
         let size = r["size"] as? Int ?? 0
         let count = r["file_count"] as? Int ?? 1
+        let reused = r["reused"] as? Bool ?? false
         copyToClipboard(url)
-        if isFolder {
+        if reused {
+            print("✓ this file already has a link — same URL, content refreshed")
+        } else if isFolder {
             print("✓ shared folder (\(count) file(s), \(humanBytes(size)) zipped)")
         } else {
             print("✓ shared \(humanBytes(size))")
         }
         print("  \(url)")
         print("  link copied to clipboard — anyone with it can download")
+        print("  re-running `stow share` returns this same URL anytime")
         print("  revoke with: stow unshare \(r["token"] as? String ?? "?")")
     } catch { fail(error) }
 

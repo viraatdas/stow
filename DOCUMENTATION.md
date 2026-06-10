@@ -175,8 +175,12 @@ How it works:
   a 5 GB offloaded file transfers nothing through your Mac.
 - **Folders are zipped** (hidden mirror area excluded) and uploaded as one
   archive, so the recipient gets a single download.
-- Links are snapshots: editing the file later doesn't change what the link
-  serves. They never expire until you `stow unshare` them.
+- **One stable URL per file**: `stow share` is idempotent — re-running it on the
+  same path returns the *same* link (and refreshes the published content), so
+  it doubles as "show me this file's URL". A fresh token is only minted after
+  `stow unshare` (a revoked link stays dead forever).
+- Between shares, links are snapshots: editing a file doesn't change what its
+  link serves until you `stow share` it again. Links never expire on their own.
 
 ---
 
