@@ -20,11 +20,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     func install() {
+        item.isVisible = true
+        item.behavior = [] // not user-removable; never auto-hidden by drag-off
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "archivebox",
-                                   accessibilityDescription: "Stow")
-            button.imagePosition = .imageLeading
-            button.title = ""
+            if let img = NSImage(systemSymbolName: "archivebox",
+                                 accessibilityDescription: "Stow") {
+                img.isTemplate = true // adapts to light/dark menu bar
+                button.image = img
+                button.imagePosition = .imageOnly
+                button.title = ""
+            } else {
+                // Symbol unavailable for some reason — text beats invisibility.
+                button.title = "Stow"
+            }
+            stowDiag("status bar: image=\(button.image != nil) frame=\(button.frame)")
+        } else {
+            stowDiag("status bar: NO BUTTON (item not materialized)")
         }
 
         menu.delegate = self
