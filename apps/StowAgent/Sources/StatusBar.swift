@@ -77,9 +77,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         // Ask fileproviderd where the domain is mounted (the dir is named
         // "<AppName>-<DomainName>", e.g. StowAgent-Stow — never hardcode it).
         guard let manager = NSFileProviderManager(for: StowDomain.domain) else { return }
-        manager.getUserVisibleURL(for: .rootContainer) { url, _ in
-            guard let url else { return }
-            DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+        manager.getUserVisibleURL(for: .rootContainer) { url, err in
+            guard let url else {
+                stowDiag("openFolder: getUserVisibleURL failed: \(String(describing: err))")
+                return
+            }
+            DispatchQueue.main.async {
+                // The URL is security-scoped: the sandboxed agent has no access
+                // to ~/Library/CloudStorage on its own, so the scope must be
+                // active while handing the URL to Finder ("does not have
+                // permission to open" otherwise).
+                let scoped = url.startAccessingSecurityScopedResource()
+                NSWorkspace.shared.open(url)
+                if scoped { url.stopAccessingSecurityScopedResource() }
+            }
         }
     }
 
