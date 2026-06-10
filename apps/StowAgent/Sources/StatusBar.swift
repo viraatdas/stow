@@ -6,7 +6,9 @@ import FileProvider
 // files are offloaded — mirroring `stow status`. Refreshes when the menu opens
 // and on a slow timer so the bar title stays roughly current.
 final class StatusBarController: NSObject, NSMenuDelegate {
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    // Created in install() — after the app finishes launching and after the
+    // preferred-position default is seeded (see below).
+    private var item: NSStatusItem!
     private let menu = NSMenu()
     private let savedItem = NSMenuItem(title: "Stow", action: nil, keyEquivalent: "")
     private let cloudItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -20,6 +22,19 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     func install() {
+        // On notched Macs, macOS can park a brand-new status item *under the
+        // notch*: the window exists (observed at x=766 with the notch spanning
+        // 771–956) but the hardware physically hides it. Placement honors the
+        // autosaved "preferred position" (distance in points from the screen's
+        // right edge), so seed one on first run that lands well right of the
+        // notch, among the system items. Only seeded when absent — if the user
+        // ⌘-drags the icon, macOS overwrites this key and we must not stomp it.
+        let posKey = "NSStatusItem Preferred Position StowMenuBar"
+        if UserDefaults.standard.object(forKey: posKey) == nil {
+            UserDefaults.standard.set(250, forKey: posKey)
+        }
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "StowMenuBar"
         item.isVisible = true
         item.behavior = [] // not user-removable; never auto-hidden by drag-off
         if let button = item.button {
@@ -36,6 +51,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             stowDiag("status bar: image=\(button.image != nil) frame=\(button.frame)")
         } else {
             stowDiag("status bar: NO BUTTON (item not materialized)")
+        }
+        // The on-screen position only settles after the window server lays the
+        // bar out; log it so "exists but hidden under the notch" is diagnosable
+        // from the log alone (button.frame above is view-local and always ~32pt).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, let win = self.item.button?.window else {
+                stowDiag("status bar: no window after 2s")
+                return
+            }
+            stowDiag("status bar: window=\(win.frame) onScreen=\(win.isVisible)")
         }
 
         menu.delegate = self
