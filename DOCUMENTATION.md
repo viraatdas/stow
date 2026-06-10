@@ -7,7 +7,11 @@ space, and brings them back on demand. It works two complementary ways:
    Finder. Files you put there live in S3; opening one downloads it back
    automatically, with no command.
 2. **Whole-account auto-offload** (CLI) — a daily background job that offloads
-   large, unused files *in place* anywhere under your home directory.
+   large, unused files *in place* anywhere under your home directory. These are
+   transparent too: opening an offloaded file auto-downloads it (v0.5+).
+
+Plus: **permanent share links** for any file or folder (`stow share`), and weekly
+cleanup of regenerable tool caches (`stow clean`).
 
 Everything stays in your AWS account. Stow never sees your data. Apple Silicon,
 macOS 14+.
@@ -102,10 +106,15 @@ You want to see `enabled: yes` (not `(⏹ user-disabled)`).
 
 ## Mode 2 — Whole-account auto-offload (CLI, in place)
 
-The File Provider folder can't reach files *outside* it (an OS limitation — same
-for Dropbox/iCloud). For offloading files that live anywhere in your home dir,
-the CLI replaces an unused file **in place** with a tiny placeholder and uploads
-the content to S3.
+The File Provider folder can't host files *outside* it (an OS limitation — same
+for Dropbox/iCloud). Stow bridges that: offloading a file anywhere on disk
+uploads it to S3, creates a **dataless mirror** in a hidden `.stow-inplace` area
+of the Stow folder (pointing at the same S3 object — no second upload), and
+replaces the original with a **symlink to the mirror**. Opening the original
+path resolves into the dataless file, macOS calls our `fetchContents`, and the
+app gets the real bytes — the download is invisible. The agent's hourly evictor
+later re-offloads hydrated mirrors once they go stale again, so the space comes
+back automatically.
 
 ```sh
 stow init                 # detect AWS creds, auto-create the S3 bucket, save config
@@ -113,8 +122,9 @@ stow scan                 # dry run: what the policy would offload (no changes)
 stow auto                 # offload everything matching the policy now
 stow schedule [HH:MM]     # run `auto` automatically every day (default 12:00)
 stow unschedule           # stop the daily run
-stow offload <path>       # offload one specific file
-stow restore <path>       # bring an offloaded file back (byte-identical)
+stow offload <path>       # offload one specific file (opens auto-download)
+stow restore <path>       # pin an offloaded file back on disk (byte-identical)
+stow migrate              # upgrade pre-0.5 stub offloads to auto-download
 stow status               # what's offloaded, space saved
 ```
 
@@ -130,17 +140,47 @@ Excludes (never offloaded, to avoid breakage): `~/Library`, `/Applications`,
 `.app`/`.photoslibrary` bundles, `~/Library/CloudStorage`, `node_modules`,
 `.git`, `DerivedData`, `.venv`, caches, hidden dirs.
 
-**Caveat (CLI mode only):** an in-place offloaded file is a placeholder until you
-`stow restore` it — opening it does **not** auto-download (that transparency is
-only available inside the Stow folder, Mode 1). While offloaded, Spotlight can
-still find it **by name**, but content search is paused until restored.
+**Fallback:** if the Stow folder isn't mounted (agent stopped, extension
+disabled), `stow offload` leaves a tiny `STOW1` JSON stub instead of a symlink;
+stubs don't auto-download — `stow restore` brings them back, and `stow migrate`
+upgrades them to transparent symlinks once the folder is available. While
+offloaded, Spotlight still finds a file **by name**; content search resumes
+after it's downloaded.
 
 "Last used" is determined primarily by Spotlight's `kMDItemLastUsedDate`, falling
 back to `max(atime, mtime)` when Spotlight has no value.
 
 ---
 
-## Mode 3 — Auto-clean regenerable caches (`stow clean`)
+## Mode 3 — Permanent share links (`stow share`)
+
+Any file or folder — local, offloaded, or in the Stow folder — can be published
+as a **permanent public link**:
+
+```sh
+stow share <path>          # publish; link is printed + copied to the clipboard
+stow shares                # list active links
+stow unshare <token|url>   # revoke (deletes the public copy; the link 404s)
+```
+
+Or from the menu bar: **Share a File or Folder…** picks via an open panel and
+puts the link on the clipboard.
+
+How it works:
+
+- The content is published under `shares/<128-bit-random-token>/<name>` in your
+  bucket. A bucket policy makes **only the `shares/` prefix** publicly readable —
+  ACLs stay blocked, listing stays denied, and `objects/` / `fp/` stay private.
+- **Already-offloaded files are copied server-side** (S3 `CopyObject`) — sharing
+  a 5 GB offloaded file transfers nothing through your Mac.
+- **Folders are zipped** (hidden mirror area excluded) and uploaded as one
+  archive, so the recipient gets a single download.
+- Links are snapshots: editing the file later doesn't change what the link
+  serves. They never expire until you `stow unshare` them.
+
+---
+
+## Mode 4 — Auto-clean regenerable caches (`stow clean`)
 
 Package-manager and tool caches (`~/.cache`, `~/.npm`, `~/.bun`, `~/.gradle`,
 `~/.cargo/registry`, Hugging Face models, …) pile up fast. These should **not**
@@ -229,7 +269,14 @@ bash scripts/sign-notarize.sh
   untouched files to dataless; verified end-to-end (drop → upload → auto-evict →
   dataless → read → byte-identical re-download, with `last_access` reset on read) ✅
 - CLI whole-account auto-offload: scan / auto / schedule / restore ✅
+- **Transparent in-place offloads (v0.5)**: offload = dataless mirror + symlink;
+  opening the original path auto-downloads (verified: 13.4 MB MP3 hydrated
+  through `file`/`afinfo` in ~10 s); `stow migrate` upgraded 75 legacy stubs ✅
+- **Share links (v0.5)**: `stow share` file/folder→zip, anonymous download
+  verified byte-identical, revoke→403, private prefixes stay 403 ✅
+- Menu bar status item: space saved at a glance, Open Stow Folder, Share… ✅
 - Public Homebrew tap, notarized signing pipeline, app icon, `stow.viraat.dev` ✅
 
 **Open / future:**
 - App offloading (`.app` bundles) — not implemented.
+- Multi-GB folder shares are zipped in memory — stream to a temp file instead.

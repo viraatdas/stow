@@ -158,6 +158,42 @@ pub extern "C" fn stow_engine_get_config() -> *mut c_char {
     json_call(engine::get_config)
 }
 
+/// `stow migrate` — convert legacy stub offloads to transparent symlinks.
+#[no_mangle]
+pub extern "C" fn stow_engine_migrate() -> *mut c_char {
+    json_call(engine::migrate)
+}
+
+/// `stow share <path>` — publish a permanent public link (folders are zipped).
+///
+/// # Safety
+/// `path` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_engine_share(path: *const c_char) -> *mut c_char {
+    json_call(|| {
+        let p = cstr(path, "path")?;
+        engine::share(p)
+    })
+}
+
+/// `stow unshare <token>` — revoke a share link (deletes the public object).
+///
+/// # Safety
+/// `token` must be a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn stow_engine_unshare(token: *const c_char) -> *mut c_char {
+    json_call(|| {
+        let t = cstr(token, "token")?;
+        engine::unshare(t)
+    })
+}
+
+/// `stow shares` — list active share links. Returns {"shares":[...]} JSON.
+#[no_mangle]
+pub extern "C" fn stow_engine_list_shares() -> *mut c_char {
+    json_call(engine::list_shares)
+}
+
 /// Replace the policy block from a JSON object. Returns the updated config JSON.
 ///
 /// # Safety
@@ -180,7 +216,13 @@ pub unsafe extern "C" fn stow_engine_set_policy(policy_json: *const c_char) -> *
 pub unsafe extern "C" fn stow_fp_enumerate(parent_id: *const c_char) -> *mut c_char {
     json_call(|| {
         let p = cstr(parent_id, "parent_id")?;
-        crate::provider::Store::open()?.children(p)
+        let store = crate::provider::Store::open()?;
+        // The working set wants every item, not one container's children.
+        if p == crate::provider::ALL_ITEMS {
+            store.all_items()
+        } else {
+            store.children(p)
+        }
     })
 }
 
@@ -259,6 +301,20 @@ pub unsafe extern "C" fn stow_fp_delete(item_id: *const c_char) -> *mut c_char {
         let id = cstr(item_id, "item_id")?;
         crate::provider::Store::open()?.delete(id)?;
         Ok(true)
+    })
+}
+
+/// Current sync anchor: a fingerprint of the provider DB. Returns
+/// {"anchor":"..."} JSON. fileproviderd compares anchors to decide whether to
+/// re-enumerate after `signalEnumerator`.
+#[no_mangle]
+pub extern "C" fn stow_fp_anchor() -> *mut c_char {
+    json_call(|| {
+        #[derive(Serialize)]
+        struct A {
+            anchor: String,
+        }
+        Ok(A { anchor: crate::provider::Store::open()?.anchor()? })
     })
 }
 

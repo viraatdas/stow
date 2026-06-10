@@ -72,10 +72,12 @@ final class Evictor {
             return
         }
 
-        // Every item the provider knows about, from the shared DB.
+        // Every item the provider knows about, from the shared DB — the visible
+        // folder tree plus the hidden in-place mirrors (which must re-evict after
+        // an app hydrates one by opening its symlink).
         let items: [StowFPItem]
         do {
-            items = try StowProvider.enumerate(parentID: "NSFileProviderRootContainerItemIdentifier")
+            items = try StowProvider.enumerate(parentID: "__stow_all__")
         } catch {
             stowDiag("evictor: enumerate failed: \(error.localizedDescription)")
             return

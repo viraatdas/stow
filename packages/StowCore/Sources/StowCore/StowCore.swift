@@ -116,6 +116,27 @@ public enum StowEngine {
         try take(stow_engine_get_config())
     }
 
+    /// `stow migrate` — convert legacy stub offloads to transparent symlinks.
+    public static func migrate() throws -> [String: Any] {
+        try take(stow_engine_migrate())
+    }
+
+    /// `stow share <path>` — publish a permanent public link (folders zipped).
+    public static func share(_ path: String) throws -> [String: Any] {
+        try path.withCString { try take(stow_engine_share($0)) }
+    }
+
+    /// `stow unshare <token>` — revoke a link; returns the removed share row.
+    @discardableResult
+    public static func unshare(_ token: String) throws -> [String: Any] {
+        try token.withCString { try take(stow_engine_unshare($0)) }
+    }
+
+    /// `stow shares` — active links, newest first ({"shares":[...]}).
+    public static func listShares() throws -> [String: Any] {
+        try take(stow_engine_list_shares())
+    }
+
     /// Replace the policy block (JSON object). Returns updated config.
     @discardableResult
     public static func setPolicy(_ json: String) throws -> [String: Any] {
@@ -247,5 +268,15 @@ public enum StowProvider {
     /// `stow status` can list offloaded folder files accurately.
     public static func setDataless(id: String, _ dataless: Bool) throws {
         _ = try id.withCString { try object(stow_fp_set_dataless($0, dataless)) }
+    }
+
+    /// Fingerprint of the provider DB — the sync anchor. Changes whenever any
+    /// row is inserted, modified, or deleted.
+    public static func anchor() throws -> String {
+        let d = try object(stow_fp_anchor())
+        guard let a = d["anchor"] as? String else {
+            throw StowError(message: "bad anchor", code: -1)
+        }
+        return a
     }
 }

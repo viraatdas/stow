@@ -20,11 +20,11 @@ agent hosts the File Provider extension. Installed via Homebrew (build-from-sour
 for now), hosted on `stow.viraat.dev`.
 
 ```sh
-brew tap viraat/tap
+brew tap viraatdas/tap
 brew install stow      # build-from-source (ad-hoc signed, personal use)
 stow init              # auto-detects ~/.aws, creates the bucket, registers the Stow folder
-stow add ~/big.mov     # manage a file
-stow offload --now     # push eligible files to the cloud (dataless)
+stow offload ~/big.mov # offload now — opening it later auto-downloads it back
+stow share ~/demo      # permanent public link (folders arrive as one zip)
 stow status            # what's offloaded, space saved
 ```
 

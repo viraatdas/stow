@@ -154,6 +154,49 @@ pub async fn get_object(c: &Client, bucket: &str, key: &str) -> StowResult<Vec<u
     Ok(bytes.to_vec())
 }
 
+/// Server-side copy within the bucket (no download/upload round-trip). Used to
+/// publish an already-offloaded object under a share key.
+pub async fn copy_object(c: &Client, bucket: &str, src_key: &str, dst_key: &str) -> StowResult<()> {
+    c.copy_object()
+        .bucket(bucket)
+        .copy_source(format!("{bucket}/{src_key}"))
+        .key(dst_key)
+        .send()
+        .await
+        .map_err(|e| StowError::Network(format!("copy {src_key} -> {dst_key}: {e}")))?;
+    Ok(())
+}
+
+/// Make objects under `shares/` publicly readable — and ONLY those. ACLs stay
+/// fully blocked; we allow a bucket policy scoped to the shares/ prefix, so the
+/// offloaded data under objects/ and fp/ remains private. Idempotent; called on
+/// every `stow share`.
+pub async fn ensure_public_shares(c: &Client, bucket: &str) -> StowResult<()> {
+    use aws_sdk_s3::types::PublicAccessBlockConfiguration;
+    let pab = PublicAccessBlockConfiguration::builder()
+        .block_public_acls(true)
+        .ignore_public_acls(true)
+        .block_public_policy(false)
+        .restrict_public_buckets(false)
+        .build();
+    c.put_public_access_block()
+        .bucket(bucket)
+        .public_access_block_configuration(pab)
+        .send()
+        .await
+        .map_err(|e| StowError::Network(format!("public-access-block: {e}")))?;
+    let policy = format!(
+        r#"{{"Version":"2012-10-17","Statement":[{{"Sid":"StowPublicShares","Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::{bucket}/shares/*"}}]}}"#
+    );
+    c.put_bucket_policy()
+        .bucket(bucket)
+        .policy(policy)
+        .send()
+        .await
+        .map_err(|e| StowError::Network(format!("bucket policy: {e}")))?;
+    Ok(())
+}
+
 /// Delete an object (used when the last reference to a hash is removed).
 pub async fn delete_object(c: &Client, bucket: &str, key: &str) -> StowResult<()> {
     c.delete_object()

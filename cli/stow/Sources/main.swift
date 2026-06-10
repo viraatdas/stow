@@ -26,9 +26,16 @@ func printUsage() {
 
     COMMANDS:
       init                 Auto-provision an S3 bucket in your AWS account
-      offload <path>       Offload one file (upload + free disk space)
-      restore <path>       Bring an offloaded file back, byte-for-byte
-      status               Show what's offloaded and space saved
+      offload <path>       Offload one file (upload + free disk space;
+                           apps auto-download it again on open)
+      restore <path>       Pin an offloaded file back on disk, byte-for-byte
+      status [-v]          Summary: files offloaded + disk space saved (-v lists files)
+      migrate              Upgrade old stub offloads to auto-download on open
+
+      share <path>         Permanent public link for a file (folders → one zip);
+                           link is copied to the clipboard
+      shares               List active share links
+      unshare <token|url>  Revoke a share link (deletes the public copy)
 
       scan                 Dry run: list files auto-offload would pick (no changes)
       auto                 Offload everything matching the policy now
@@ -58,11 +65,26 @@ func requireArg(_ args: [String], _ name: String) -> String {
     return v
 }
 
-/// Resolve a possibly-relative path to an absolute, symlink-resolved path so the
-/// engine's index keys are stable.
+/// Resolve a possibly-relative path to an absolute path with a stable parent
+/// chain — but do NOT resolve the final component: a transparent offload IS a
+/// symlink (into the File Provider mirror), and `stow restore`/`status` must
+/// address the symlink itself, not its CloudStorage target.
 func absolutePath(_ p: String) -> String {
-    let url = URL(fileURLWithPath: (p as NSString).expandingTildeInPath)
-    return url.standardizedFileURL.resolvingSymlinksInPath().path
+    let url = URL(fileURLWithPath: (p as NSString).expandingTildeInPath).standardizedFileURL
+    let parent = url.deletingLastPathComponent().resolvingSymlinksInPath()
+    return parent.appendingPathComponent(url.lastPathComponent).path
+}
+
+/// Put a string on the clipboard (best-effort; used for share links).
+func copyToClipboard(_ s: String) {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/pbcopy")
+    let pipe = Pipe()
+    p.standardInput = pipe
+    guard (try? p.run()) != nil else { return }
+    pipe.fileHandleForWriting.write(Data(s.utf8))
+    pipe.fileHandleForWriting.closeFile()
+    p.waitUntilExit()
 }
 
 /// Human-readable byte size.
@@ -111,9 +133,78 @@ case "add", "offload":
         let r = try StowEngine.offload(path)
         let freed = r["bytes_freed"] as? Int ?? 0
         let deduped = r["deduped"] as? Bool ?? false
+        let transparent = r["transparent"] as? Bool ?? false
         print("✓ offloaded \(path)")
         print("  freed \(humanBytes(freed))\(deduped ? " (content already in S3 — deduped)" : "")")
-        print("  restore with: stow restore \(path)")
+        if transparent {
+            print("  opening it downloads it automatically; `stow restore` pins it back")
+        } else {
+            print("  Stow folder unavailable — left a stub; bring back with: stow restore \(path)")
+        }
+    } catch { fail(error) }
+
+case "migrate":
+    do {
+        let r = try StowEngine.migrate()
+        let migrated = r["migrated"] as? [String] ?? []
+        let skipped = r["skipped"] as? Int ?? 0
+        print("✓ upgraded \(migrated.count) offloaded file(s) to auto-download-on-open (\(skipped) already fine)")
+        for p in migrated.prefix(20) { print("  ↻ \(p)") }
+        if migrated.count > 20 { print("  … and \(migrated.count - 20) more") }
+        if let fails = r["failures"] as? [[String: Any]], !fails.isEmpty {
+            print("\n\(fails.count) could not be upgraded (still restorable with `stow restore`):")
+            for f in fails.prefix(10) {
+                print("  \(f["path"] as? String ?? "?"): \(f["error"] as? String ?? "?")")
+            }
+        }
+    } catch { fail(error) }
+
+case "share":
+    let path = absolutePath(requireArg(rest, "path"))
+    do {
+        let r = try StowEngine.share(path)
+        let url = r["url"] as? String ?? "?"
+        let isFolder = r["is_folder"] as? Bool ?? false
+        let size = r["size"] as? Int ?? 0
+        let count = r["file_count"] as? Int ?? 1
+        copyToClipboard(url)
+        if isFolder {
+            print("✓ shared folder (\(count) file(s), \(humanBytes(size)) zipped)")
+        } else {
+            print("✓ shared \(humanBytes(size))")
+        }
+        print("  \(url)")
+        print("  link copied to clipboard — anyone with it can download")
+        print("  revoke with: stow unshare \(r["token"] as? String ?? "?")")
+    } catch { fail(error) }
+
+case "shares":
+    do {
+        let r = try StowEngine.listShares()
+        let shares = r["shares"] as? [[String: Any]] ?? []
+        if shares.isEmpty {
+            print("No active share links. Create one with: stow share <path>")
+            break
+        }
+        print("\(shares.count) active share link(s):\n")
+        for s in shares {
+            let kind = (s["is_folder"] as? Bool ?? false) ? "folder (zip)" : "file"
+            print("  \(humanBytes(s["size"] as? Int ?? 0))\t\(kind)\t\(s["source"] as? String ?? "?")")
+            print("    \(s["url"] as? String ?? "?")")
+            print("    revoke: stow unshare \(s["token"] as? String ?? "?")")
+        }
+    } catch { fail(error) }
+
+case "unshare":
+    var token = requireArg(rest, "token")
+    // Accept the full URL too: …/shares/<token>/<name>
+    if token.contains("/shares/") {
+        let parts = token.components(separatedBy: "/shares/")
+        token = parts.last?.components(separatedBy: "/").first ?? token
+    }
+    do {
+        let r = try StowEngine.unshare(token)
+        print("✓ revoked share for \(r["source"] as? String ?? "?") — the link is dead")
     } catch { fail(error) }
 
 case "restore":
@@ -124,14 +215,34 @@ case "restore":
     } catch { fail(error) }
 
 case "status":
+    // Default: a rough summary (files offloaded + disk space saved). Pass
+    // -v/--verbose to also list every file.
+    let verbose = rest.contains("-v") || rest.contains("--verbose") || rest.contains("--all")
     do {
         let r = try StowEngine.status()
         let cliCount = r["count"] as? Int ?? 0
         let cliBytes = r["bytes_offloaded"] as? Int ?? 0
         let folderCount = r["folder_count"] as? Int ?? 0
         let folderBytes = r["folder_bytes"] as? Int ?? 0
-        print("bucket: \(r["bucket"] as? String ?? "?") (\(r["region"] as? String ?? "?"))")
-        print("offloaded: \(cliCount + folderCount) file(s), \(humanBytes(cliBytes + folderBytes)) in the cloud")
+        let items = r["items"] as? [[String: Any]] ?? []
+
+        // "Saved on disk" counts only what's currently offloaded: dataless Stow
+        // folder files plus in-place CLI offloads not yet restored. A restored
+        // (●) file is back on disk — its bytes live in S3 but save no local space.
+        // Computed by the core from the index (DB), so it matches the menu bar.
+        let savedBytes = r["saved_bytes"] as? Int ?? 0
+        let savedCount = r["saved_count"] as? Int ?? 0
+        let cloudCount = cliCount + folderCount
+        let cloudBytes = cliBytes + folderBytes
+
+        // The rough summary you glance at.
+        print("Stow — saved \(humanBytes(savedBytes)) on disk, \(savedCount) file(s) offloaded")
+        print("bucket: \(r["bucket"] as? String ?? "?") (\(r["region"] as? String ?? "?")) · \(cloudCount) file(s), \(humanBytes(cloudBytes)) in S3")
+
+        if !verbose {
+            if cloudCount > 0 { print("\nRun `stow status -v` to list files.") }
+            break
+        }
 
         // Transparent Stow folder — files auto-offloaded to dataless (open one to
         // download it back automatically).
@@ -142,14 +253,15 @@ case "status":
             }
         }
 
-        // Whole-account, in-place offloads (run `stow restore <path>` to bring back).
-        if let items = r["items"] as? [[String: Any]], !items.isEmpty {
-            print("\n  In-place (CLI, `stow restore` to bring back):")
+        // Whole-account, in-place offloads (open one to download it; `stow
+        // restore <path>` pins it back permanently).
+        if !items.isEmpty {
+            print("\n  In-place (downloads on open; `stow restore` to pin back):")
             for it in items {
                 let off = (it["present_as_placeholder"] as? Bool ?? false) ? "○" : "●"
                 print("    \(off) \(humanBytes(it["size"] as? Int ?? 0))\t\(it["path"] as? String ?? "?")")
             }
-            print("\n  ○ = offloaded (placeholder)   ● = restored/local")
+            print("\n  ○ = offloaded   ● = restored/local")
         }
     } catch { fail(error) }
 
@@ -285,8 +397,7 @@ case "config":
             try Policy.update { $0["include_hidden"] = on }
             print("✓ scan hidden dirs (e.g. ~/.cache): \(on ? "ON" : "off")")
             if on {
-                print("  note: offloads in hidden dirs are in-place stubs — they do NOT")
-                print("  auto-download on open, so `stow restore <path>` before reusing.")
+                print("  note: offloaded files auto-download when an app opens them.")
                 print("  Credential dirs (.ssh/.aws/…) and .git/.Trash stay protected.")
             }
         default:

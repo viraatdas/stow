@@ -1,8 +1,9 @@
 # Homebrew formula for Stow — build-from-source.
 #
-# v0.4.0: CLI offload engine (`init` / `offload` / `restore` / `scan` / `auto` /
-# `schedule`), `stow status` across both offload modes, and `stow clean` (reclaim
-# regenerable tool/package caches, weekly via `stow schedule`).
+# v0.5.0: transparent in-place offloads (opening an offloaded file anywhere on
+# disk auto-downloads it — no `stow restore` needed), permanent public share
+# links (`stow share` — folders arrive as one zip; `stow unshare` revokes), and
+# `stow migrate` to upgrade pre-0.5 stub offloads.
 #
 # Build-from-source works because Homebrew's build allows network, so cargo
 # (crates.io) resolves normally. The CLI is dependency-free Swift + a static Rust
@@ -18,8 +19,8 @@
 class Stow < Formula
   desc "Offload unused files on macOS to your own S3, restore on demand"
   homepage "https://stow.viraat.dev"
-  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.4.0.tar.gz"
-  sha256 "bdfef289e97b72e1cf157bf03478dbc18822f007f80275cf4ef1fb39d37be4d1"
+  url "https://github.com/viraatdas/stow/archive/refs/tags/v0.5.0.tar.gz"
+  sha256 :no_check # pinned after the v0.5.0 tag is pushed
   license "MIT"
   head "https://github.com/viraatdas/stow.git", branch: "main"
 
@@ -57,8 +58,9 @@ class Stow < Formula
         stow init             # auto-provision the bucket
         stow scan             # dry run: what the policy would offload
         stow schedule         # daily auto-offload + weekly cache cleanup
-        stow offload <file>   # upload + free disk space now
-        stow restore <file>   # bring it back
+        stow offload <file>   # upload + free disk space (auto-downloads on open)
+        stow share <path>     # permanent public link (folders -> one zip)
+        stow restore <file>   # pin it back on disk
         stow clean            # list regenerable caches (--apply to delete)
         stow status           # what's offloaded
     EOS

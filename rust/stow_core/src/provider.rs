@@ -18,6 +18,15 @@ use serde::Serialize;
 /// Root container identifier, matching NSFileProviderRootContainerItemIdentifier.
 pub const ROOT: &str = "NSFileProviderRootContainerItemIdentifier";
 
+/// Fixed item id of the hidden folder that holds dataless mirrors of in-place
+/// offloads. Symlinks at the original paths point into this folder, so opening
+/// one anywhere on disk triggers an on-demand download via `fetch`.
+pub const INPLACE_ROOT: &str = "stow-inplace-root";
+/// Its on-disk name inside the Stow folder. Dot-prefixed so Finder hides it.
+pub const INPLACE_DIRNAME: &str = ".stow-inplace";
+/// Sentinel parent id meaning "every item" (the working-set enumeration).
+pub const ALL_ITEMS: &str = "__stow_all__";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Item {
     pub item_id: String,
@@ -198,11 +207,45 @@ impl Store {
         Ok(())
     }
 
-    /// All offloaded (dataless) files in the Stow folder, largest first.
+    /// Cheap fingerprint of the whole table — the sync anchor. Any insert,
+    /// content bump, or delete changes it, which is how fileproviderd finds out
+    /// about rows the CLI writes directly (see the enumerator's
+    /// `enumerateChanges`: anchor mismatch → full re-enumeration).
+    pub fn anchor(&self) -> StowResult<String> {
+        let (n, v, m): (i64, i64, i64) = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(version),0), COALESCE(MAX(modified_at),0) FROM fp_items",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        Ok(format!("{n}-{v}-{m}"))
+    }
+
+    /// Every item the provider knows about (the working-set enumeration).
+    pub fn all_items(&self) -> StowResult<Vec<Item>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless FROM fp_items ORDER BY filename")
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        let rows = stmt
+            .query_map([], Self::row_to_item)
+            .map_err(|e| StowError::Io(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| StowError::Io(e.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// All offloaded (dataless) files the USER put in the Stow folder, largest
+    /// first. Excludes the hidden in-place mirrors — those are counted from the
+    /// CLI index instead (one file, one count).
     pub fn dataless(&self) -> StowResult<Vec<Item>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless FROM fp_items WHERE dataless=1 AND is_folder=0 ORDER BY size DESC")
+            .prepare("SELECT item_id,parent_id,filename,is_folder,size,content_type,hash,s3_key,version,modified_at,last_access,dataless FROM fp_items WHERE dataless=1 AND is_folder=0 AND parent_id != 'stow-inplace-root' ORDER BY size DESC")
             .map_err(|e| StowError::Io(e.to_string()))?;
         let rows = stmt
             .query_map([], Self::row_to_item)
@@ -222,6 +265,90 @@ pub fn list_dataless() -> StowResult<Vec<Item>> {
         return Ok(Vec::new());
     }
     Store::open()?.dataless()
+}
+
+// ---- in-place mirrors ---------------------------------------------------------
+//
+// A transparent in-place offload is a dataless file in the hidden
+// `.stow-inplace` folder plus a symlink at the original path. Opening the
+// symlink makes fileproviderd call `fetch` — the download is invisible to the
+// app. Mirror ids/names derive from the original path so re-offloading the
+// same file updates one row instead of accumulating duplicates.
+
+/// Deterministic mirror item id for an original on-disk path.
+pub fn mirror_id(path: &str) -> String {
+    let h = blake3::hash(path.as_bytes()).to_hex().to_string();
+    format!("inp-{}", &h[..16])
+}
+
+/// The mirror's filename inside `.stow-inplace`: short path-hash prefix keeps
+/// same-named files from different directories apart.
+pub fn mirror_filename(path: &str) -> String {
+    let h = blake3::hash(path.as_bytes()).to_hex().to_string();
+    let base = std::path::Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    format!("{}-{}", &h[..10], base)
+}
+
+/// Make sure the hidden `.stow-inplace` folder item exists.
+pub fn ensure_inplace_root(store: &Store) -> StowResult<()> {
+    if store.get(INPLACE_ROOT)?.is_some() {
+        return Ok(());
+    }
+    store.upsert(&Item {
+        item_id: INPLACE_ROOT.into(),
+        parent_id: ROOT.into(),
+        filename: INPLACE_DIRNAME.into(),
+        is_folder: true,
+        size: 0,
+        content_type: "public.folder".into(),
+        hash: None,
+        s3_key: None,
+        version: 1,
+        modified_at: now(),
+        last_access: now(),
+        dataless: false,
+    })
+}
+
+/// Create (or refresh) the dataless mirror for an in-place offload. Points at
+/// the in-place object's existing S3 key — no second upload.
+pub fn mirror_inplace(store: &Store, path: &str, size: i64, hash: &str, s3_key: &str) -> StowResult<Item> {
+    ensure_inplace_root(store)?;
+    let filename = mirror_filename(path);
+    let version = store.get(&mirror_id(path))?.map(|m| m.version + 1).unwrap_or(1);
+    let it = Item {
+        item_id: mirror_id(path),
+        parent_id: INPLACE_ROOT.into(),
+        filename: filename.clone(),
+        is_folder: false,
+        size,
+        content_type: guess_type(&filename),
+        hash: Some(hash.to_string()),
+        s3_key: Some(s3_key.to_string()),
+        version,
+        modified_at: now(),
+        last_access: now(),
+        dataless: true,
+    };
+    store.upsert(&it)?;
+    Ok(it)
+}
+
+/// Drop the mirror row for a path (after `stow restore` removes the symlink).
+pub fn remove_mirror(path: &str) -> StowResult<()> {
+    Store::open()?.delete(&mirror_id(path))
+}
+
+/// Touch the `fp-signal` sentinel in the shared group container. The agent
+/// watches it and calls `signalEnumerator` so fileproviderd notices rows we
+/// insert directly into the DB (the CLI can't signal fileproviderd itself).
+pub fn touch_signal() {
+    if let Ok(dir) = Config::support_dir() {
+        let _ = std::fs::write(dir.join("fp-signal"), now().to_string());
+    }
 }
 
 // ---- high-level operations (used by the FFI) --------------------------------

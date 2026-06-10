@@ -27,6 +27,12 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
     private let log = Logger(subsystem: "ai.exla.stow", category: "agent")
     // Held strongly so its timer keeps firing for the agent's lifetime.
     private let evictor = Evictor()
+    // Watches the CLI's fp-signal sentinel and pokes fileproviderd, so DB rows
+    // the CLI writes (in-place mirrors) become visible dataless files.
+    private let signaler = Signaler()
+    // Menu bar (status bar) item — the agent's only bit of UI. Held strongly so
+    // the NSStatusItem and its refresh timer live for the agent's lifetime.
+    private let statusBar = StatusBarController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Share state via the App Group container (sandboxed).
@@ -39,6 +45,10 @@ final class AgentDelegate: NSObject, NSApplicationDelegate {
         // Stow folder are evicted to dataless on a schedule (content already in S3).
         evictor.start()
         stowDiag("evictor started")
+        signaler.start()
+        // Show the menu bar item with the at-a-glance saved/offloaded numbers.
+        statusBar.install()
+        stowDiag("status bar installed")
     }
 }
 
