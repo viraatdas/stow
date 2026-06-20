@@ -4,13 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>stow — offload your files on mac</title>
-<meta name="description" content="Frees Mac disk space: offloads files over 10MB untouched for 90 days (configurable) to your own S3 with auto-download on open, shares any file or folder as a permanent link, and auto-cleans regenerable tool/package caches weekly. Apple File Provider, Apple Silicon." />
+<meta name="description" content="Frees Mac disk space: offloads files over 10MB untouched for 30 days (configurable) to your own S3 with auto-download on open, shares any file or folder as a permanent link, and auto-cleans regenerable tool/package caches weekly. Apple File Provider, Apple Silicon." />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="icon" type="image/png" href="/favicon.png" />
 <link rel="apple-touch-icon" href="/favicon.png" />
 <meta property="og:image" content="https://stow.viraat.dev/og-image.png" />
 <meta property="og:title" content="stow — offload unused files, auto-download on open" />
-<meta property="og:description" content="Offloads files over 10MB untouched for 90 days (configurable) to your own S3; open one and it downloads back automatically." />
+<meta property="og:description" content="Offloads files over 10MB untouched for 30 days (configurable) to your own S3; open one and it downloads back automatically." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400&display=swap" rel="stylesheet" />
@@ -106,7 +106,7 @@
     <h1>stow</h1>
     <p class="tag">Frees disk space on your Mac by offloading files you aren&rsquo;t using to your own S3 &mdash; and the instant any app touches one, it downloads back automatically.</p>
 
-    <p class="lead">By default Stow offloads files that are <strong>over 10&nbsp;MB</strong> and <strong>haven&rsquo;t been opened in 90 days</strong> &mdash; both thresholds are configurable. Offloaded files still show up in Finder at zero bytes on disk. <strong>The moment any process tries to read one, Stow immediately downloads it back from the cloud, byte-for-byte.</strong> No buttons, no <code>restore</code> command, no thinking about it.</p>
+    <p class="lead">By default Stow offloads files that are <strong>over 10&nbsp;MB</strong> and <strong>haven&rsquo;t been opened in 30 days</strong> &mdash; both thresholds are configurable. Offloaded files still show up in Finder at zero bytes on disk. <strong>The moment any process tries to read one, Stow immediately downloads it back from the cloud, byte-for-byte.</strong> No buttons, no <code>restore</code> command, no thinking about it.</p>
 
     <p class="lead" style="color:var(--muted);font-size:0.9rem;">Built on Apple&rsquo;s File Provider framework &mdash; the same mechanism iCloud Drive and Dropbox use. Content is hashed, de-duplicated, and verified byte-for-byte. Everything stays in <em>your</em> AWS account &mdash; Stow never sees your data. Apple Silicon, macOS 14+.</p>
 
@@ -130,7 +130,7 @@ stow init</code></pre>
     <pre><code class="cmd"><span class="c"># offload a specific file now (frees disk; opens it later to restore)</span>
 stow offload ~/Movies/big-render.mov
 
-<span class="c"># tune what auto-offloads (defaults: ≥10 MB, untouched ≥90 days)</span>
+<span class="c"># tune what auto-offloads (defaults: ≥10 MB, untouched ≥30 days)</span>
 stow config set-size 20
 stow config set-age 30
 

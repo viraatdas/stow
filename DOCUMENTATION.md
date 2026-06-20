@@ -63,7 +63,7 @@ A **Stow** entry appears in Finder's sidebar at
 ### Auto-eviction of the Stow folder (automatic offload)
 
 The agent runs an **hourly sweep** (`Evictor`) that offloads files in the Stow
-folder which are **≥10 MB** and **untouched ≥90 days** (the same defaults as the
+folder which are **≥10 MB** and **untouched ≥30 days** (the same defaults as the
 CLI; reads `policy` from the shared config). Eviction calls
 `NSFileProviderManager.evictItem`, which drops the local copy to dataless while
 the bytes stay in S3 — reading the file later re-downloads it transparently.
@@ -133,7 +133,7 @@ stow status               # what's offloaded, space saved
 | Setting | Default | Change with |
 |---|---|---|
 | min size | 10 MB | `stow config set-size <MB>` |
-| min age (untouched) | 90 days | `stow config set-age <days>` |
+| min age (untouched) | 30 days | `stow config set-age <days>` |
 | folders scanned | `/Users/<you>` | `stow config add-root` / `remove-root` |
 
 Excludes (never offloaded, to avoid breakage): `~/Library`, `/Applications`,
@@ -269,7 +269,7 @@ bash scripts/sign-notarize.sh
 
 **Working & verified:**
 - Transparent Stow folder: drop→upload, open→auto-download, byte-identical ✅
-- **Auto-eviction of the Stow folder**: hourly sweep evicts ≥10 MB / ≥90-day-
+- **Auto-eviction of the Stow folder**: hourly sweep evicts ≥10 MB / ≥30-day-
   untouched files to dataless; verified end-to-end (drop → upload → auto-evict →
   dataless → read → byte-identical re-download, with `last_access` reset on read) ✅
 - CLI whole-account auto-offload: scan / auto / schedule / restore ✅

@@ -59,7 +59,7 @@ final class Evictor {
     private func sweep() {
         // Policy thresholds from the shared config (fall back to conservative defaults).
         var minSize: Int64 = 10 * 1024 * 1024
-        var minAgeDays = 90
+        var minAgeDays = 30
         if let cfg = try? StowEngine.getConfig(), let p = cfg["policy"] as? [String: Any] {
             minSize = (p["min_size_bytes"] as? NSNumber)?.int64Value ?? minSize
             minAgeDays = (p["min_age_days"] as? Int) ?? minAgeDays

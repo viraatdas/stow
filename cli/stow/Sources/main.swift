@@ -45,7 +45,7 @@ func printUsage() {
 
       config               Show the auto-offload policy
       config set-size <MB> Minimum file size to offload (default 10)
-      config set-age <days> Days untouched before offloading (default 90)
+      config set-age <days> Days untouched before offloading (default 30)
       config add-root <dir>     Add a folder to auto-scan
       config remove-root <dir>  Remove a folder from auto-scan
       config include-hidden [on|off]  Scan hidden dirs like ~/.cache (default off)

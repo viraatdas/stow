@@ -83,7 +83,7 @@ fn default_min_size() -> u64 {
 }
 
 fn default_min_age_days() -> u64 {
-    90 // conservative: a full quarter untouched before we'd move it
+    30 // a month untouched before we'd move it (content stays in S3, reads re-download)
 }
 
 fn default_roots() -> Vec<String> {
